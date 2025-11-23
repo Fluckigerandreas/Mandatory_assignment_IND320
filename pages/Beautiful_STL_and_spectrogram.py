@@ -42,9 +42,12 @@ def load_data():
 # ======================================================
 def stl_decompose_series(series, period=24*7, title="STL Decomposition"):
     """Perform STL decomposition on a time series."""
+    # Ensure datetime index
+    series.index = pd.to_datetime(series.index, errors="coerce")
     series = series.sort_index()
 
-    if series.index.tzinfo is None:
+    # Timezone handling (correct)
+    if series.index.tz is None:
         series = series.tz_localize("UTC")
     else:
         series = series.tz_convert("UTC")
