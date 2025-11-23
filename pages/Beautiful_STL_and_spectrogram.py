@@ -46,11 +46,14 @@ def stl_decompose_series(series, period=24*7, title="STL Decomposition"):
     series.index = pd.to_datetime(series.index, errors="coerce")
     series = series.sort_index()
 
-    # Timezone handling (correct)
+    # Timezone handling
     if series.index.tz is None:
         series = series.tz_localize("UTC")
     else:
         series = series.tz_convert("UTC")
+
+    # FIX: Remove duplicate timestamps
+    series = series.groupby(series.index).sum()
 
     # Regularize to hourly frequency
     series = series.asfreq("h")
@@ -68,6 +71,7 @@ def stl_decompose_series(series, period=24*7, title="STL Decomposition"):
     st.pyplot(fig)
 
     return result
+
 
 # ======================================================
 # 3) Spectrogram
