@@ -66,9 +66,13 @@ def select_series(df, kind):
     group = st.selectbox(f"Select {key_col}", options=sorted(groups))
 
     if pa == "ALL":
-        series = df[df[key_col] == group].groupby(df.index).agg({"quantitykwh": "sum"}).sort_index()
+        # Correct grouping: group on the filtered dataframe's OWN index
+    filtered = df[df[key_col] == group]
+    series = filtered.groupby(filtered.index).agg({"quantitykwh": "sum"}).sort_index()
     else:
-        series = df[(df[key_col] == group) & (df["pricearea"] == pa)][["quantitykwh"]].sort_index()
+        # Correct grouping when price area is used
+        filtered = df[(df[key_col] == group) & (df["pricearea"] == pa)]
+        series = filtered.groupby(filtered.index).agg & (df["pricearea"] == pa)][["quantitykwh"]].sort_index()
 
     series = series["quantitykwh"].asfreq(series.index.inferred_freq or None)
     return series, (pa, group)
@@ -269,3 +273,4 @@ else:
 # -----------------------------
 # End
 # -----------------------------
+
