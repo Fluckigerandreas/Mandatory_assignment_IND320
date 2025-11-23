@@ -19,8 +19,8 @@ def load_data():
     uri = st.secrets["mongo"]["uri"]
     ca = certifi.where()
     client = MongoClient(uri, tls=True, tlsCAFile=ca)
-    db = client['example']
-    collection = db['data']
+    db = client['Elhub']
+    collection = db['Data']
 
     data = list(collection.find())
     if not data:
