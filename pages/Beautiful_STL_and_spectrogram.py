@@ -44,11 +44,10 @@ def stl_decompose_series(series, period=24*7, title="STL Decomposition"):
     """Perform STL decomposition on a time series."""
     series = series.sort_index()
 
-    # Handle timezone
-    if series.index.tz is not None:
-        series = series.tz_convert("UTC")
+    if series.index.tzinfo is None:
+        series = series.tz_localize("UTC")
     else:
-        series.index = series.index.tz_localize("UTC")
+        series = series.tz_convert("UTC")
 
     # Regularize to hourly frequency
     series = series.asfreq("h")
