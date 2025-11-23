@@ -53,28 +53,41 @@ def load_consumption():
 def select_series(df, kind):
     # kind = 'production' or 'consumption'
     if df.empty:
-        return None, None
-    if kind == "production":
-        groups = df["productiongroup"].unique()
-        key_col = "productiongroup"
-    else:
-        groups = df["consumptiongroup"].unique()
-        key_col = "consumptiongroup"
+        return pd.Series(dtype=float), {}
 
-    priceareas = df["pricearea"].unique()
-    pa = st.selectbox("Select price area", options=np.append(["ALL"], sorted(priceareas)))
-    group = st.selectbox(f"Select {key_col}", options=sorted(groups))
+    key_col = "productiongroup" if kind == "production" else "consumptiongroup"
 
+    # available groups and price areas
+    groups = sorted(df[key_col].dropna().unique())
+    group = st.selectbox(f"Select {key_col}", options=groups)
+
+    priceareas = sorted(df["pricearea"].dropna().unique())
+    pa = st.selectbox("Select price area", options=np.append(["ALL"], priceareas))
+
+    # Filter safely
     if pa == "ALL":
-        # Correct grouping: group on the filtered dataframe's OWN index
-    filtered = df[df[key_col] == group]
-    series = filtered.groupby(filtered.index).agg({"quantitykwh": "sum"}).sort_index()
+        filtered = df[df[key_col] == group].copy()
     else:
-        # Correct grouping when price area is used
-        filtered = df[(df[key_col] == group) & (df["pricearea"] == pa)]
-        series = filtered.groupby(filtered.index).agg & (df["pricearea"] == pa)][["quantitykwh"]].sort_index()
+        filtered = df[(df[key_col] == group) & (df["pricearea"] == pa)].copy()
 
-    series = series["quantitykwh"].asfreq(series.index.inferred_freq or None)
+    if filtered.empty:
+        return pd.Series(dtype=float), {"pricearea": pa, "group": group}
+
+    # Group by the filtered index only and return a Series
+    series = (
+        filtered.groupby(filtered.index)
+        .agg({"quantitykwh": "sum"})
+        .sort_index()["quantitykwh"]
+    )
+
+    # Try to set a sensible frequency if pandas can infer one
+    try:
+        inferred = series.index.inferred_freq
+        if inferred:
+            series = series.asfreq(inferred)
+    except Exception:
+        pass
+
     return series, (pa, group)
 
 
@@ -273,4 +286,3 @@ else:
 # -----------------------------
 # End
 # -----------------------------
-
