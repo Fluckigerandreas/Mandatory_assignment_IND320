@@ -5,7 +5,6 @@ import plotly.graph_objects as go
 from pymongo import MongoClient
 import certifi
 import requests
-from datetime import datetime
 
 # -------------------------
 # Data Loading (cached)
@@ -31,13 +30,13 @@ def download_era5(lat, lon, year, timezone="Europe/Oslo"):
     df = df.set_index("time")
     df["season"] = df.index.to_series().apply(lambda dt: dt.year if dt.month >= 7 else dt.year - 1)
     
-    # Ensure numeric types for weather variables
+    # Ensure numeric
     numeric_cols = ["temperature_2m", "precipitation", "wind_speed_10m",
                     "wind_direction_10m", "wind_gusts_10m"]
     df[numeric_cols] = df[numeric_cols].apply(pd.to_numeric, errors="coerce")
     df = df.dropna()
     
-    # Remove duplicate timestamps
+    # Remove duplicates
     df = df[~df.index.duplicated(keep='first')]
     return df
 
@@ -59,7 +58,7 @@ def load_production():
     df = df.groupby(["pricearea", "productiongroup", "starttime"], as_index=False).agg({"quantitykwh": "sum"})
     df.set_index("starttime", inplace=True)
     
-    # Aggregate duplicates if any
+    # Aggregate duplicates
     df = df.groupby(df.index).sum()
     return df
 
@@ -80,7 +79,7 @@ def load_consumption():
     df = df.groupby(["pricearea", "consumptiongroup", "starttime"], as_index=False).agg({"quantitykwh": "sum"})
     df.set_index("starttime", inplace=True)
     
-    # Aggregate duplicates if any
+    # Aggregate duplicates
     df = df.groupby(df.index).sum()
     return df
 
@@ -113,7 +112,6 @@ center = st.sidebar.slider("Center index for window", window//2, len(weather_df)
 # -------------------------
 # Align Data
 # -------------------------
-# Ensure numeric and drop NaNs
 combined_df = pd.concat([weather_df[variable_weather], energy_df[variable_energy]], axis=1, join="inner")
 combined_df = combined_df.apply(pd.to_numeric, errors="coerce").dropna()
 x = combined_df[variable_weather]
@@ -123,7 +121,6 @@ y = combined_df[variable_energy]
 # Sliding Window Correlation
 # -------------------------
 def sliding_window_corr(x, y, lag=0, window=45):
-    # Shift x by lag
     if lag > 0:
         x_lagged = x.shift(lag).iloc[window-1:]
         y_trunc = y.iloc[window-1:]
@@ -143,19 +140,28 @@ fig = go.Figure()
 
 # Top plot: Energy
 fig.add_trace(go.Scatter(y=y, x=y.index, mode="lines", name=f"{variable_energy}"))
-fig.add_trace(go.Scatter(y=y.iloc[center-window//2:center+window//2],
-                         x=y.index[center-window//2:center+window//2],
+highlight_start = max(center-window//2, 0)
+highlight_end = min(center+window//2, len(y))
+fig.add_trace(go.Scatter(y=y.iloc[highlight_start:highlight_end],
+                         x=y.index[highlight_start:highlight_end],
                          mode="lines", line=dict(color="red"), name="Highlighted"))
 
 # Middle plot: Weather
 fig.add_trace(go.Scatter(y=x, x=x.index, mode="lines", name=f"{variable_weather}"))
-fig.add_trace(go.Scatter(y=x.iloc[center-window//2:center+window//2],
-                         x=x.index[center-window//2:center+window//2],
+fig.add_trace(go.Scatter(y=x.iloc[highlight_start:highlight_end],
+                         x=x.index[highlight_start:highlight_end],
                          mode="lines", line=dict(color="red"), name="Highlighted"))
 
 # Bottom plot: Sliding window correlation
 fig.add_trace(go.Scatter(y=swc, x=swc.index, mode="lines", name="SWC"))
-fig.add_trace(go.Scatter(y=[swc.iloc[center]], x=[swc.index[center]], mode="markers", marker=dict(color="red", size=10)))
+
+# Safely highlight center of SWC
+center_swc = min(center, len(swc)-1)
+if len(swc) > 0:
+    fig.add_trace(go.Scatter(y=[swc.iloc[center_swc]],
+                             x=[swc.index[center_swc]],
+                             mode="markers",
+                             marker=dict(color="red", size=10)))
 
 fig.update_layout(height=800, xaxis_title="Time", yaxis_title="Values / Correlation",
                   title=f"Sliding Window Correlation (lag={lag}, window={window})\nCorrelation={corr_value:.3f}")
