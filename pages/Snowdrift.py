@@ -89,7 +89,8 @@ def compute_average_sector(df):
     return np.mean(sectors_list, axis=0)
 
 def plot_wind_rose(avg_sector_values, overall_avg):
-    dirs = ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW']
+    dirs = ['N','NNE','NE','ENE','E','ESE','SE','SSE',
+            'S','SSW','SW','WSW','W','WNW','NW','NNW']
     theta = np.linspace(0,360,16,endpoint=False)
     r = np.array(avg_sector_values)/1000
     fig = go.Figure(go.Barpolar(
@@ -140,18 +141,21 @@ DEFAULT_LOCATION = (59.663, 10.762)
 
 if "clicked_point" not in st.session_state:
     st.session_state.clicked_point = DEFAULT_LOCATION
-if "selected_area" not in st.session_state:
-    st.session_state.selected_area = None
 
 # --- Map ---
 m = folium.Map(location=[st.session_state.clicked_point[0],
                          st.session_state.clicked_point[1]], zoom_start=6)
 
-def style(feature):
-    return {"fillColor":"blue", "color":"blue", "weight":1, "fillOpacity":0.2}
+folium.GeoJson(gj, style_function=lambda x: {
+    "fillColor": "blue",
+    "color": "blue",
+    "weight": 1,
+    "fillOpacity": 0.2
+}).add_to(m)
 
-folium.GeoJson(gj, style_function=style).add_to(m)
-folium.Marker(st.session_state.clicked_point, icon=folium.Icon(color="red")).add_to(m)
+folium.Marker(
+    st.session_state.clicked_point, icon=folium.Icon(color="red")
+).add_to(m)
 
 map_data = st_folium(m, width=900, height=500)
 
@@ -163,7 +167,7 @@ if map_data and map_data.get("last_clicked"):
 lat, lon = st.session_state.clicked_point
 st.write(f"📍 **Latitude:** {lat:.4f}, **Longitude:** {lon:.4f}")
 
-# --- User inputs ---
+# --- User Inputs ---
 start_year = st.number_input("Start Year", 1996, 2025, 2020)
 end_year = st.number_input("End Year", start_year, 2025, 2022)
 
@@ -174,62 +178,66 @@ T = 3000
 F = 30000
 theta = 0.5
 
-# --- Download all years ---
-all_dfs = []
+# --- Download ERA5 Data ---
+dfs = []
 for y in range(start_year, end_year + 1):
-    df_y = download_era5(lat, lon, y)
-    all_dfs.append(df_y)
-df_all = pd.concat(all_dfs)
+    dfs.append(download_era5(lat, lon, y))
 
-# --- Filter by month range ---
-df_all = df_all[df_all.index.month.between(start_month, end_month)]
+df_all = pd.concat(dfs)
 
-# --- Yearly results ---
+# --- FIXED monthly filter ---
+df_all = df_all[(df_all.index.month >= start_month) & (df_all.index.month <= end_month)]
+
+# --- YEARLY Qt ---
 yearly_df = compute_yearly_results(df_all, T, F, theta)
+
+st.subheader("📘 Yearly Snow Drift Qt")
 if yearly_df.empty:
-    st.warning("No yearly snow drift results for selected range.")
+    st.warning("No yearly results available for selected range.")
 else:
     yearly_df["Qt (tonnes/m)"] = yearly_df["Qt"] / 1000
-    st.subheader("Yearly Qt")
     st.dataframe(yearly_df[["season", "Qt (tonnes/m)", "Control"]])
 
-    fig = go.Figure(go.Bar(
+    fig_year = go.Figure(go.Bar(
         x=yearly_df["season"], y=yearly_df["Qt (tonnes/m)"], marker_color="skyblue"
     ))
-    fig.update_layout(title="Yearly Snow Drift", yaxis_title="Qt (tonnes/m)")
-    st.plotly_chart(fig)
+    fig_year.update_layout(title="Yearly Snow Drift Qt", yaxis_title="Qt (tonnes/m)")
+    st.plotly_chart(fig_year)
 
-# --- Monthly results ---
+# --- MONTHLY Qt ---
 monthly_df = compute_monthly_results(df_all, T, F, theta)
 monthly_df["Qt (tonnes/m)"] = monthly_df["Qt"] / 1000
 monthly_df["month_str"] = monthly_df["year"].astype(str) + "-" + monthly_df["month"].astype(str).str.zfill(2)
 
-st.subheader("Monthly Qt")
+st.subheader("📗 Monthly Snow Drift Qt")
 st.dataframe(monthly_df[["month_str", "Qt (tonnes/m)", "Control"]])
 
-fig2 = go.Figure()
-fig2.add_trace(go.Scatter(
+fig_month = go.Figure(go.Scatter(
     x=monthly_df["month_str"], y=monthly_df["Qt (tonnes/m)"],
     mode="lines+markers", name="Monthly Qt"
 ))
-fig2.update_layout(title="Monthly Snow Drift", yaxis_title="Qt (tonnes/m)")
-st.plotly_chart(fig2)
+fig_month.update_layout(title="Monthly Qt", yaxis_title="Qt (tonnes/m)")
+st.plotly_chart(fig_month)
 
-# --- Combined plot ---
-fig3 = go.Figure()
-fig3.add_trace(go.Scatter(
+# --- Combined ---
+fig_comb = go.Figure()
+
+fig_comb.add_trace(go.Scatter(
     x=monthly_df["month_str"], y=monthly_df["Qt (tonnes/m)"],
     mode="lines+markers", name="Monthly"
 ))
-if not yearly_df.empty:
-    fig3.add_trace(go.Bar(
-        x=yearly_df["season"], y=yearly_df["Qt (tonnes/m)"], name="Yearly", opacity=0.4
-    ))
-fig3.update_layout(title="Monthly + Yearly Snow Drift", yaxis_title="Qt (tonnes/m)")
-st.plotly_chart(fig3)
 
-# --- Wind rose ---
-st.subheader("Wind Rose")
+if not yearly_df.empty:
+    fig_comb.add_trace(go.Bar(
+        x=yearly_df["season"], y=yearly_df["Qt (tonnes/m)"],
+        name="Yearly", opacity=0.35
+    ))
+
+fig_comb.update_layout(title="Combined Monthly + Yearly Qt", yaxis_title="Qt (tonnes/m)")
+st.plotly_chart(fig_comb)
+
+# --- Wind Rose ---
+st.subheader("🟣 Wind Rose")
 avg_sectors = compute_average_sector(df_all)
 overall_avg = yearly_df["Qt"].mean() if not yearly_df.empty else 0
 plot_wind_rose(avg_sectors, overall_avg)
