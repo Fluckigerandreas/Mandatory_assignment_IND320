@@ -4,6 +4,7 @@ import numpy as np
 import certifi
 from pymongo import MongoClient
 import statsmodels.api as sm
+import matplotlib.pyplot as plt
 
 # -------------------------
 # Data loading (cached)
@@ -69,77 +70,6 @@ def select_series(df, kind):
     )
 
     # -------------------------
-    # NEW: Daily resampling
+    # Daily resampling
     # -------------------------
     series = series.resample("D").sum().fillna(0)
-
-    try:
-        inferred = series.index.inferred_freq
-        if inferred:
-            series = series.asfreq(inferred)
-    except Exception:
-        pass
-
-    return series, {"pricearea": pa, "group": group}
-
-# -------------------------
-# SARIMAX fitting (cached)
-# -------------------------
-@st.cache_resource(show_spinner=True)
-def fit_sarimax(series, order, seasonal_order, exog=None):
-    model = sm.tsa.SARIMAX(
-        series,
-        order=order,
-        seasonal_order=seasonal_order,
-        exog=exog,
-        enforce_stationarity=False,
-        enforce_invertibility=False
-    )
-    return model.fit(disp=False)
-
-# -------------------------
-# Streamlit UI
-# -------------------------
-st.title("Energy Production/Consumption Forecast")
-
-# Sidebar selections
-kind = st.sidebar.radio("Select type", ["production", "consumption"])
-series, meta = select_series(prod_df if kind=="production" else cons_df, kind)
-
-if series.empty:
-    st.warning("No data available for selected options.")
-else:
-    st.subheader(f"Selected series: {meta}")
-    st.line_chart(series)
-
-    # Forecast parameters
-    st.sidebar.subheader("SARIMAX parameters")
-    p = st.sidebar.number_input("AR term (p)", 0, 5, 1)
-    d = st.sidebar.number_input("Differencing term (d)", 0, 2, 1)
-    q = st.sidebar.number_input("MA term (q)", 0, 5, 1)
-
-    P = st.sidebar.number_input("Seasonal AR term (P)", 0, 2, 0)
-    D = st.sidebar.number_input("Seasonal differencing (D)", 0, 1, 0)
-    Q = st.sidebar.number_input("Seasonal MA term (Q)", 0, 2, 0)
-    m = st.sidebar.number_input("Seasonal period (m)", 1, 168, 24)
-
-    steps = st.sidebar.number_input("Forecast horizon (steps)", 1, 168, 24)
-
-    forecast_button = st.sidebar.button("Run Forecast")
-
-    if forecast_button:
-        with st.spinner("Fitting SARIMAX model..."):
-            model_fit = fit_sarimax(series, order=(p, d, q), seasonal_order=(P, D, Q, m))
-            forecast_res = model_fit.get_forecast(steps=steps)
-            forecast_mean = forecast_res.predicted_mean
-            conf_int = forecast_res.conf_int()
-
-        st.subheader("Forecast")
-        import matplotlib.pyplot as plt
-
-        fig, ax = plt.subplots(figsize=(10, 5))
-        ax.plot(series.index, series.values, label="Observed")
-        ax.plot(forecast_mean.index, forecast_mean.values, label="Forecast", color="red")
-        ax.fill_between(conf_int.index, conf_int.iloc[:, 0], conf_int.iloc[:, 1], color='pink', alpha=0.3)
-        ax.legend()
-        st.pyplot(fig)
