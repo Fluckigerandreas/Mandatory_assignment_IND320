@@ -68,6 +68,11 @@ def select_series(df, kind):
         .sort_index()["quantitykwh"]
     )
 
+    # -------------------------
+    # NEW: Daily resampling
+    # -------------------------
+    series = series.resample("D").sum().fillna(0)
+
     try:
         inferred = series.index.inferred_freq
         if inferred:
