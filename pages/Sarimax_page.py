@@ -41,9 +41,8 @@ prod_df = load_production()
 cons_df = load_consumption()
 
 # -------------------------
-# Series selection (cached)
+# Series selection (NO CACHE!)
 # -------------------------
-@st.cache_data(show_spinner=False)
 def select_series(df, kind):
     if df.empty:
         return pd.Series(dtype=float), {}
@@ -83,7 +82,14 @@ def select_series(df, kind):
 # -------------------------
 @st.cache_resource(show_spinner=True)
 def fit_sarimax(series, order, seasonal_order, exog=None):
-    model = sm.tsa.SARIMAX(series, order=order, seasonal_order=seasonal_order, exog=exog, enforce_stationarity=False, enforce_invertibility=False)
+    model = sm.tsa.SARIMAX(
+        series,
+        order=order,
+        seasonal_order=seasonal_order,
+        exog=exog,
+        enforce_stationarity=False,
+        enforce_invertibility=False
+    )
     return model.fit(disp=False)
 
 # -------------------------
@@ -118,16 +124,17 @@ else:
 
     if forecast_button:
         with st.spinner("Fitting SARIMAX model..."):
-            model_fit = fit_sarimax(series, order=(p,d,q), seasonal_order=(P,D,Q,m))
+            model_fit = fit_sarimax(series, order=(p, d, q), seasonal_order=(P, D, Q, m))
             forecast_res = model_fit.get_forecast(steps=steps)
             forecast_mean = forecast_res.predicted_mean
             conf_int = forecast_res.conf_int()
 
         st.subheader("Forecast")
         import matplotlib.pyplot as plt
-        fig, ax = plt.subplots(figsize=(10,5))
+
+        fig, ax = plt.subplots(figsize=(10, 5))
         ax.plot(series.index, series.values, label="Observed")
         ax.plot(forecast_mean.index, forecast_mean.values, label="Forecast", color="red")
-        ax.fill_between(conf_int.index, conf_int.iloc[:,0], conf_int.iloc[:,1], color='pink', alpha=0.3)
+        ax.fill_between(conf_int.index, conf_int.iloc[:, 0], conf_int.iloc[:, 1], color='pink', alpha=0.3)
         ax.legend()
         st.pyplot(fig)
