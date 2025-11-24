@@ -30,6 +30,9 @@ def download_era5(lat, lon, year, timezone="Europe/Oslo"):
     df["time"] = pd.to_datetime(df["time"], utc=True)
     df = df.set_index("time")
     df["season"] = df.index.to_series().apply(lambda dt: dt.year if dt.month >= 7 else dt.year - 1)
+    
+    # Remove duplicate timestamps if any
+    df = df[~df.index.duplicated(keep='first')]
     return df
 
 @st.cache_data(show_spinner="Loading production data...")
@@ -43,8 +46,13 @@ def load_production():
     df = df.dropna(subset=["starttime"])
     if "pricearea" in df.columns:
         df["pricearea"] = df["pricearea"].apply(lambda x: x if x else "NO")
+    
     df = df.groupby(["pricearea", "productiongroup", "starttime"], as_index=False).agg({"quantitykwh": "sum"})
     df.set_index("starttime", inplace=True)
+    
+    # Remove duplicate timestamps if any
+    df = df.groupby(df.index).sum()
+    
     return df
 
 @st.cache_data(show_spinner="Loading consumption data...")
@@ -57,8 +65,13 @@ def load_consumption():
     df["starttime"] = pd.to_datetime(df["starttime"], utc=True)
     if "pricearea" in df.columns:
         df["pricearea"] = df["pricearea"].apply(lambda x: x if x else "NO")
+    
     df = df.groupby(["pricearea", "consumptiongroup", "starttime"], as_index=False).agg({"quantitykwh": "sum"})
     df.set_index("starttime", inplace=True)
+    
+    # Remove duplicate timestamps if any
+    df = df.groupby(df.index).sum()
+    
     return df
 
 # -------------------------
