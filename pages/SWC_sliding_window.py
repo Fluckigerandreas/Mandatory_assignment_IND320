@@ -31,7 +31,13 @@ def download_era5(lat, lon, year, timezone="Europe/Oslo"):
     df = df.set_index("time")
     df["season"] = df.index.to_series().apply(lambda dt: dt.year if dt.month >= 7 else dt.year - 1)
     
-    # Remove duplicate timestamps if any
+    # Ensure numeric types for weather variables
+    numeric_cols = ["temperature_2m", "precipitation", "wind_speed_10m",
+                    "wind_direction_10m", "wind_gusts_10m"]
+    df[numeric_cols] = df[numeric_cols].apply(pd.to_numeric, errors="coerce")
+    df = df.dropna()
+    
+    # Remove duplicate timestamps
     df = df[~df.index.duplicated(keep='first')]
     return df
 
@@ -47,12 +53,14 @@ def load_production():
     if "pricearea" in df.columns:
         df["pricearea"] = df["pricearea"].apply(lambda x: x if x else "NO")
     
+    df["quantitykwh"] = pd.to_numeric(df["quantitykwh"], errors="coerce")
+    df = df.dropna(subset=["quantitykwh"])
+    
     df = df.groupby(["pricearea", "productiongroup", "starttime"], as_index=False).agg({"quantitykwh": "sum"})
     df.set_index("starttime", inplace=True)
     
-    # Remove duplicate timestamps if any
+    # Aggregate duplicates if any
     df = df.groupby(df.index).sum()
-    
     return df
 
 @st.cache_data(show_spinner="Loading consumption data...")
@@ -66,12 +74,14 @@ def load_consumption():
     if "pricearea" in df.columns:
         df["pricearea"] = df["pricearea"].apply(lambda x: x if x else "NO")
     
+    df["quantitykwh"] = pd.to_numeric(df["quantitykwh"], errors="coerce")
+    df = df.dropna(subset=["quantitykwh"])
+    
     df = df.groupby(["pricearea", "consumptiongroup", "starttime"], as_index=False).agg({"quantitykwh": "sum"})
     df.set_index("starttime", inplace=True)
     
-    # Remove duplicate timestamps if any
+    # Aggregate duplicates if any
     df = df.groupby(df.index).sum()
-    
     return df
 
 # -------------------------
@@ -103,23 +113,28 @@ center = st.sidebar.slider("Center index for window", window//2, len(weather_df)
 # -------------------------
 # Align Data
 # -------------------------
-# Match timestamps
-combined_df = pd.concat([weather_df[variable_weather], energy_df[variable_energy]], axis=1, join="inner").dropna()
+# Ensure numeric and drop NaNs
+combined_df = pd.concat([weather_df[variable_weather], energy_df[variable_energy]], axis=1, join="inner")
+combined_df = combined_df.apply(pd.to_numeric, errors="coerce").dropna()
 x = combined_df[variable_weather]
 y = combined_df[variable_energy]
 
 # -------------------------
 # Sliding Window Correlation
 # -------------------------
-def sliding_window_corr(x, y, lag=0, window=45, center=22):
+def sliding_window_corr(x, y, lag=0, window=45):
     # Shift x by lag
-    x_lagged = x.shift(lag).iloc[window-1:]
-    y_trunc = y.iloc[window-1:]
+    if lag > 0:
+        x_lagged = x.shift(lag).iloc[window-1:]
+        y_trunc = y.iloc[window-1:]
+    else:
+        x_lagged = x.iloc[window-1:]
+        y_trunc = y.iloc[window-1:]
     swc = y_trunc.rolling(window, center=True).corr(x_lagged)
     return swc
 
-swc = sliding_window_corr(x, y, lag=lag, window=window, center=center)
-corr_value = np.corrcoef(y[lag:], x[:-lag] if lag>0 else x)[0,1]
+swc = sliding_window_corr(x, y, lag=lag, window=window)
+corr_value = np.corrcoef(y[lag:].values, x[:-lag].values if lag>0 else x.values)[0,1]
 
 # -------------------------
 # Plot with Plotly
