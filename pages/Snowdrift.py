@@ -7,7 +7,6 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 import requests_cache
-import branca
 
 # ------------------ Streamlit page ------------------
 st.set_page_config(layout="wide")
@@ -27,7 +26,7 @@ def extract_geojson_area(feature):
 
 # ------------------ Session state ------------------
 if "clicked_point" not in st.session_state:
-    st.session_state.clicked_point = (59.663, 10.762)  # default: NMBU Ås
+    st.session_state.clicked_point = (59.663, 10.762)  # default NMBU Ås
 
 # ------------------ Cached ERA5 downloader ------------------
 session = requests_cache.CachedSession(".cache", expire_after=86400)
@@ -97,16 +96,52 @@ def compute_yearly_results(df, T, F, theta):
         results_list.append(result)
     return pd.DataFrame(results_list)
 
+def compute_monthly_results(df, T, F, theta):
+    df = df.copy()
+    df["Swe_hourly"] = df.apply(lambda r: r["precipitation"] if r["temperature_2m"] < 1 else 0, axis=1)
+    monthly_groups = df.groupby([df.index.year, df.index.month])
+    out = []
+    for (year, month), g in monthly_groups:
+        Swe = g["Swe_hourly"].sum()
+        ws = g["wind_speed_10m"].tolist()
+        if len(ws) == 0:
+            continue
+        result = compute_snow_transport(T,F,theta,Swe,ws)
+        result["year"] = year
+        result["month"] = month
+        out.append(result)
+    return pd.DataFrame(out)
+
+def compute_average_sector(df):
+    sectors_list = []
+    for s, group in df.groupby('season'):
+        group = group.copy()
+        group["Swe_hourly"] = group.apply(lambda r: r["precipitation"] if r["temperature_2m"] < 1 else 0, axis=1)
+        ws = group["wind_speed_10m"].tolist()
+        wd = group["wind_direction_10m"].tolist()
+        sectors_list.append(compute_sector_transport(ws, wd))
+    return np.mean(sectors_list, axis=0)
+
+def plot_wind_rose(avg_sector_values, overall_avg):
+    dirs = ['N','NNE','NE','ENE','E','ESE','SE','SSE',
+            'S','SSW','SW','WSW','W','WNW','NW','NNW']
+    theta = np.linspace(0,360,16,endpoint=False)
+    r = np.array(avg_sector_values)/1000
+    fig = go.Figure(go.Barpolar(
+        r=r, theta=theta, width=[22.5]*16,
+        marker_color=r, marker_line_color="black", marker_line_width=1
+    ))
+    fig.update_layout(polar=dict(
+        radialaxis=dict(title="Qt (tonnes/m)"),
+        angularaxis=dict(direction="clockwise", rotation=90, ticktext=dirs, tickvals=theta)
+    ))
+    st.plotly_chart(fig)
+
 # ------------------ Map ------------------
 m = folium.Map(location=st.session_state.clicked_point, zoom_start=6)
-
 for feat in geojson_data.get("features", []):
     folium.GeoJson(feat, style_function=lambda f: {"fillColor":"blue","color":"blue","weight":1,"fillOpacity":0.2}).add_to(m)
-
-# Add marker
 folium.Marker(st.session_state.clicked_point, icon=folium.Icon(color="red")).add_to(m)
-
-# Click interaction
 map_data = st_folium(m, width=900, height=500)
 
 if map_data and map_data.get("last_clicked"):
@@ -114,7 +149,7 @@ if map_data and map_data.get("last_clicked"):
     lon = map_data["last_clicked"]["lng"]
     st.session_state.clicked_point = (lat, lon)
 
-# ------------------ ERA5 Download ------------------
+# ------------------ User Inputs ------------------
 start_year = st.number_input("Start Year", 1996, 2025, 2020)
 end_year = st.number_input("End Year", start_year, 2025, 2022)
 
@@ -122,14 +157,47 @@ T = 3000
 F = 30000
 theta = 0.5
 
-df_all = download_era5(st.session_state.clicked_point[0], st.session_state.clicked_point[1], start_year, end_year)
+# ------------------ Download ERA5 ------------------
+df_all = download_era5(*st.session_state.clicked_point, start_year, end_year)
 
 if df_all.empty:
     st.warning("No ERA5 data available for this location/year range.")
 else:
+    # --- Yearly Qt ---
     yearly_df = compute_yearly_results(df_all, T,F,theta)
     st.subheader("📘 Yearly Snow Drift Qt")
     if not yearly_df.empty:
         yearly_df["Qt (tonnes/m)"] = yearly_df["Qt"]/1000
         st.dataframe(yearly_df[["season","Qt (tonnes/m)","Control"]])
+        fig_year = go.Figure(go.Bar(x=yearly_df["season"], y=yearly_df["Qt (tonnes/m)"], marker_color="skyblue"))
+        fig_year.update_layout(title="Yearly Snow Drift Qt", yaxis_title="Qt (tonnes/m)")
+        st.plotly_chart(fig_year)
+
+    # --- Monthly Qt ---
+    monthly_df = compute_monthly_results(df_all, T,F,theta)
+    if not monthly_df.empty:
+        monthly_df["Qt (tonnes/m)"] = monthly_df["Qt"]/1000
+        monthly_df["month_str"] = monthly_df["year"].astype(str)+"-"+monthly_df["month"].astype(str).str.zfill(2)
+        st.subheader("📗 Monthly Snow Drift Qt")
+        st.dataframe(monthly_df[["month_str","Qt (tonnes/m)","Control"]])
+        fig_month = go.Figure(go.Scatter(x=monthly_df["month_str"], y=monthly_df["Qt (tonnes/m)"],
+                                         mode="lines+markers", name="Monthly Qt"))
+        fig_month.update_layout(title="Monthly Qt", yaxis_title="Qt (tonnes/m)")
+        st.plotly_chart(fig_month)
+
+        # --- Combined Monthly + Yearly Qt ---
+        fig_comb = go.Figure()
+        fig_comb.add_trace(go.Scatter(x=monthly_df["month_str"], y=monthly_df["Qt (tonnes/m)"],
+                                      mode="lines+markers", name="Monthly"))
+        if not yearly_df.empty:
+            fig_comb.add_trace(go.Bar(x=yearly_df["season"], y=yearly_df["Qt (tonnes/m)"],
+                                      name="Yearly", opacity=0.35))
+        fig_comb.update_layout(title="Combined Monthly + Yearly Qt", yaxis_title="Qt (tonnes/m)")
+        st.plotly_chart(fig_comb)
+
+    # --- Wind Rose ---
+    st.subheader("🟣 Wind Rose")
+    avg_sectors = compute_average_sector(df_all)
+    overall_avg = yearly_df["Qt"].mean() if not yearly_df.empty else 0
+    plot_wind_rose(avg_sectors, overall_avg)
 
