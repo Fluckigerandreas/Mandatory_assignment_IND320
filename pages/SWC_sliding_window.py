@@ -28,7 +28,6 @@ def download_era5(lat, lon, year, timezone="Europe/Oslo"):
     df = pd.DataFrame(data["hourly"])
     df["time"] = pd.to_datetime(df["time"], utc=True)
     df = df.set_index("time")
-    df["season"] = df.index.to_series().apply(lambda dt: dt.year if dt.month >= 7 else dt.year - 1)
     
     # Ensure numeric
     numeric_cols = ["temperature_2m", "precipitation", "wind_speed_10m",
@@ -36,7 +35,7 @@ def download_era5(lat, lon, year, timezone="Europe/Oslo"):
     df[numeric_cols] = df[numeric_cols].apply(pd.to_numeric, errors="coerce")
     df = df.dropna()
     
-    # Remove duplicates
+    # Remove duplicate timestamps
     df = df[~df.index.duplicated(keep='first')]
     return df
 
@@ -121,16 +120,21 @@ y = combined_df[variable_energy]
 # Sliding Window Correlation
 # -------------------------
 def sliding_window_corr(x, y, lag=0, window=45):
-    if lag > 0:
-        x_lagged = x.shift(lag).iloc[window-1:]
-        y_trunc = y.iloc[window-1:]
-    else:
-        x_lagged = x.iloc[window-1:]
-        y_trunc = y.iloc[window-1:]
-    swc = y_trunc.rolling(window, center=True).corr(x_lagged)
+    # Shift x by lag
+    x_shifted = x.shift(lag)
+    
+    # Align indices
+    combined = pd.concat([x_shifted, y], axis=1).dropna()
+    x_aligned = combined.iloc[:,0]
+    y_aligned = combined.iloc[:,1]
+    
+    # Compute rolling correlation
+    swc = y_aligned.rolling(window, center=True).corr(x_aligned)
     return swc
 
 swc = sliding_window_corr(x, y, lag=lag, window=window)
+
+# Overall correlation
 corr_value = np.corrcoef(y[lag:].values, x[:-lag].values if lag>0 else x.values)[0,1]
 
 # -------------------------
@@ -138,26 +142,28 @@ corr_value = np.corrcoef(y[lag:].values, x[:-lag].values if lag>0 else x.values)
 # -------------------------
 fig = go.Figure()
 
-# Top plot: Energy
+# Highlight range safely
+highlight_start = max(center - window//2, 0)
+highlight_end = min(center + window//2, len(y))
+
+# Energy
 fig.add_trace(go.Scatter(y=y, x=y.index, mode="lines", name=f"{variable_energy}"))
-highlight_start = max(center-window//2, 0)
-highlight_end = min(center+window//2, len(y))
 fig.add_trace(go.Scatter(y=y.iloc[highlight_start:highlight_end],
                          x=y.index[highlight_start:highlight_end],
                          mode="lines", line=dict(color="red"), name="Highlighted"))
 
-# Middle plot: Weather
+# Weather
 fig.add_trace(go.Scatter(y=x, x=x.index, mode="lines", name=f"{variable_weather}"))
 fig.add_trace(go.Scatter(y=x.iloc[highlight_start:highlight_end],
                          x=x.index[highlight_start:highlight_end],
                          mode="lines", line=dict(color="red"), name="Highlighted"))
 
-# Bottom plot: Sliding window correlation
+# Sliding window correlation
 fig.add_trace(go.Scatter(y=swc, x=swc.index, mode="lines", name="SWC"))
 
-# Safely highlight center of SWC
-center_swc = min(center, len(swc)-1)
+# Highlight SWC center safely
 if len(swc) > 0:
+    center_swc = min(len(swc)//2, len(swc)-1)
     fig.add_trace(go.Scatter(y=[swc.iloc[center_swc]],
                              x=[swc.index[center_swc]],
                              mode="markers",
