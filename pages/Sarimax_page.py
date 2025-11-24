@@ -5,6 +5,7 @@ import certifi
 from pymongo import MongoClient
 import statsmodels.api as sm
 import matplotlib.pyplot as plt
+import datetime
 
 # -------------------------
 # Data loading (cached)
@@ -126,7 +127,10 @@ else:
     if start_date > end_date:
         st.error("Start date must be before end date.")
     else:
-        series = series.loc[start_date:end_date]
+        # Convert date_input to tz-aware datetime to match series index
+        start_dt = pd.Timestamp(datetime.datetime.combine(start_date, datetime.time(0, 0)), tz="UTC")
+        end_dt = pd.Timestamp(datetime.datetime.combine(end_date, datetime.time(23, 59, 59)), tz="UTC")
+        series = series.loc[start_dt:end_dt]
 
     st.subheader(f"Selected series: {meta}")
     st.line_chart(series)
