@@ -125,12 +125,6 @@ if not area_means:
     st.stop()
 
 # ==============================================================================
-# Sidebar debug
-# ==============================================================================
-st.sidebar.write("GeoJSON -> normalized area (sample):")
-st.sidebar.json({i: v for i, v in list(geo_feature_area.items())})
-
-# ==============================================================================
 # Color scale using branca
 # ==============================================================================
 vals = list(area_means.values())
@@ -161,8 +155,6 @@ def tooltip_content(feature):
     for k in ["ElSpotOmr", "Elspot_omr", "ELSPOT_OMR"]:
         if k in props:
             txt.append(f"{k}: {props[k]}")
-    norm = extract_geojson_area(feature)
-    txt.append(f"Normalized: {norm}")
     return "<br/>".join(txt)
 
 for i, feat in enumerate(geojson_data.get("features", [])):
@@ -202,10 +194,8 @@ if map_data and map_data.get("last_clicked"):
 # ==============================================================================
 # Display info
 # ==============================================================================
-st.write("### Mean values per area (normalized keys):")
-st.json(area_means)
-
 if st.session_state.selected_area:
     st.success(f"Selected area: **{st.session_state.selected_area}**")
 
 st.write(f"Clicked coordinates: {st.session_state.clicked_point}")
+
