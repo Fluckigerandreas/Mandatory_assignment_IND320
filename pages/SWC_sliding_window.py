@@ -5,7 +5,6 @@ import numpy as np
 import plotly.graph_objects as go
 from Data_loader import load_production, load_consumption
 import requests
-from datetime import datetime
 
 st.set_page_config(layout="wide")
 st.title("Sliding Window Correlation: Meteorology vs Energy")
@@ -74,7 +73,7 @@ selected_group = st.sidebar.selectbox("Select group", groups)
 
 lag = st.sidebar.slider("Lag (hours)", 0, 100, 0)
 window = st.sidebar.slider("Sliding window length", 1, 60, 45)
-center = st.sidebar.slider("Center index for window", window//2, 1000, 500)  # center safe default
+center = st.sidebar.slider("Center index for window", window//2, 1000, 500)
 
 # -------------------------
 # Prepare energy series
@@ -82,9 +81,7 @@ center = st.sidebar.slider("Center index for window", window//2, 1000, 500)  # c
 energy_series = energy_df[energy_df[group_col]==selected_group].copy()
 energy_series["quantitykwh"] = pd.to_numeric(energy_series["quantitykwh"], errors="coerce")
 energy_series = energy_series.dropna(subset=["quantitykwh"])
-
-# Aggregate duplicates by timestamp
-energy_series = energy_series.groupby("starttime")["quantitykwh"].sum()
+energy_series = energy_series.groupby("starttime")["quantitykwh"].sum()  # Aggregate duplicates
 
 # -------------------------
 # Download weather
@@ -110,17 +107,15 @@ def sliding_window_corr(x, y, lag=0, window=45):
 
 swc = sliding_window_corr(x, y, lag=lag, window=window)
 
-# Overall correlation
 if lag > 0:
     corr_value = np.corrcoef(y[lag:].values, x[:-lag].values)[0,1]
 else:
     corr_value = np.corrcoef(y.values, x.values)[0,1]
 
 # -------------------------
-# Plot with Plotly
+# Plot SWC with Plotly
 # -------------------------
 fig = go.Figure()
-
 highlight_start = max(center - window//2, 0)
 highlight_end = min(center + window//2, len(y))
 
@@ -136,16 +131,8 @@ fig.add_trace(go.Scatter(y=x.iloc[highlight_start:highlight_end],
                          x=x.index[highlight_start:highlight_end],
                          mode="lines", line=dict(color="red"), name="Highlighted"))
 
-# Sliding window correlation
+# SWC
 fig.add_trace(go.Scatter(y=swc, x=swc.index, mode="lines", name="SWC"))
-
-# Highlight SWC center
-if len(swc) > 0:
-    center_swc = min(len(swc)//2, len(swc)-1)
-    fig.add_trace(go.Scatter(y=[swc.iloc[center_swc]],
-                             x=[swc.index[center_swc]],
-                             mode="markers",
-                             marker=dict(color="red", size=10)))
 
 fig.update_layout(height=800, xaxis_title="Time", yaxis_title="Values / Correlation",
                   title=f"Sliding Window Correlation\nlag={lag}, window={window}, correlation={corr_value:.3f}")
@@ -153,3 +140,27 @@ fig.update_layout(height=800, xaxis_title="Time", yaxis_title="Values / Correlat
 st.plotly_chart(fig, use_container_width=True)
 st.write(f"Correlation between **{selected_group}** and **{variable_weather}** lagged {lag} timepoints: **{corr_value:.3f}**")
 
+# -------------------------
+# Cross-correlation vs lag plot
+# -------------------------
+st.write("---")
+st.header("Correlation vs Lag")
+
+max_lag = st.slider("Max lag for correlation plot (hours)", 0, 100, 50)
+
+corrs = []
+lags = range(-max_lag, max_lag+1)
+for l in lags:
+    if l > 0:
+        corr = np.corrcoef(y[l:].values, x[:-l].values)[0,1]
+    elif l < 0:
+        corr = np.corrcoef(y[:l].values, x[-l:].values)[0,1]
+    else:
+        corr = np.corrcoef(y.values, x.values)[0,1]
+    corrs.append(corr)
+
+fig2 = go.Figure()
+fig2.add_trace(go.Scatter(x=list(lags), y=corrs, mode="lines+markers", name="Correlation"))
+fig2.update_layout(xaxis_title="Lag (hours)", yaxis_title="Correlation",
+                   title=f"Correlation between **{selected_group}** and **{variable_weather}** vs lag")
+st.plotly_chart(fig2, use_container_width=True)
