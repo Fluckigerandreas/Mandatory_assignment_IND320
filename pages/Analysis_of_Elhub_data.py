@@ -108,7 +108,7 @@ with col2:
         format_func=lambda x: pd.to_datetime(f"2021-{x}-01").strftime("%B")
     )
 
-    # Filter and aggregate data
+    # Filter data by production group and selected month
     df_filtered = df_area[
         (df_area["productiongroup"].isin(prod_groups_selected)) &
         (df_area.index.month == month)
@@ -117,14 +117,13 @@ with col2:
     if df_filtered.empty:
         st.warning("No data for this selection.")
     else:
-        # Reset index to turn datetime index into a column
-        df_filtered_reset = df_filtered.reset_index()
+        # Reset index and explicitly name the datetime column
+        df_filtered_reset = df_filtered.reset_index(names="starttime")
 
         # Aggregate by datetime and production group
         df_sum = (
             df_filtered_reset
-            .groupby(["index", "productiongroup"], as_index=False)["quantitykwh"].sum()
-            .rename(columns={"index": "starttime"})
+            .groupby(["starttime", "productiongroup"], as_index=False)["quantitykwh"].sum()
             .sort_values("starttime")
         )
 
