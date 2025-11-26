@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 
-# ✔ Import the shared cached loader
+# ✔ Use the updated shared cached loader
 from data_loader import load_production
 
 # -------------------------------
@@ -10,7 +10,7 @@ from data_loader import load_production
 # -------------------------------
 df = load_production()
 
-if df.empty:
+if df is None or df.empty:
     st.error("No production data found in MongoDB.")
     st.stop()
 
@@ -90,7 +90,7 @@ with col1:
 with col2:
     st.header("Monthly Production Line Plot")
 
-    # Production group selection (pills style)
+    # Production group selection
     prod_groups_selected = st.multiselect(
         "Select production group(s):",
         df["productiongroup"].unique(),
@@ -107,7 +107,7 @@ with col2:
     # Filter and aggregate data
     df_filtered = df_area[
         (df_area["productiongroup"].isin(prod_groups_selected)) &
-        (df_area["starttime"].dt.month == month)
+        (df_area.index.month == month)
     ]
 
     if df_filtered.empty:
@@ -144,4 +144,3 @@ with st.expander("ℹ️ Data Source"):
     The data in this dashboard comes from the ELHUB API, showing hourly electricity
     production by price area and production group. It’s stored in MongoDB and visualized here interactively.
     """)
-
