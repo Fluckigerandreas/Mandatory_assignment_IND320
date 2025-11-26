@@ -71,7 +71,16 @@ with col1:
         st.stop()
 
     df_area = df[df["pricearea"].isin(selected_areas)]
-    total_by_group = df_area.groupby("productiongroup")["quantitykwh"].sum().reset_index()
+
+    # -------------------------------
+    # YEAR SELECTION
+    # -------------------------------
+    years_available = df_area.index.year.unique()
+    selected_year = st.selectbox("Select a year:", sorted(years_available, reverse=True))
+
+    df_area_year = df_area[df_area.index.year == selected_year]
+
+    total_by_group = df_area_year.groupby("productiongroup")["quantitykwh"].sum().reset_index()
 
     # Pie chart
     fig_pie = px.pie(
@@ -80,7 +89,7 @@ with col1:
         values="quantitykwh",
         color="productiongroup",
         color_discrete_map=group_colors,
-        title="Total Production in Selected Price Area(s)",
+        title=f"Total Production in {selected_year} for Selected Price Area(s)",
         width=600,
         height=600
     )
@@ -108,10 +117,10 @@ with col2:
         format_func=lambda x: pd.to_datetime(f"2021-{x}-01").strftime("%B")
     )
 
-    # Filter data by production group and selected month
-    df_filtered = df_area[
-        (df_area["productiongroup"].isin(prod_groups_selected)) &
-        (df_area.index.month == month)
+    # Filter data by production group, month, and selected year
+    df_filtered = df_area_year[
+        (df_area_year["productiongroup"].isin(prod_groups_selected)) &
+        (df_area_year.index.month == month)
     ]
 
     if df_filtered.empty:
@@ -135,7 +144,7 @@ with col2:
             color="productiongroup",
             markers=True,
             color_discrete_map=group_colors,
-            title=f"Total Hourly Production ({pd.to_datetime(f'2021-{month}-01').strftime('%B')})",
+            title=f"Total Hourly Production ({pd.to_datetime(f'{selected_year}-{month}-01').strftime('%B %Y')})",
             width=900,
             height=500
         )
@@ -151,3 +160,4 @@ with st.expander("ℹ️ Data Source"):
     The data in this dashboard comes from the ELHUB API, showing hourly electricity
     production by price area and production group. It’s stored in MongoDB and visualized here interactively.
     """)
+
