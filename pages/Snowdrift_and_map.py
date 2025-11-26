@@ -212,23 +212,34 @@ if st.session_state.clicked_point:
     )
 
     years = range(start_year, end_year + 1)
-    results = []
+    annual_results = []
+    monthly_results = []
+
     for y in years:
         start_date = pd.Timestamp(year=y, month=7, day=1)
         end_date = pd.Timestamp(year=y+1, month=6, day=30, hour=23, minute=59, second=59)
         try:
             drift = calculate_snow_drift(lat, lon, start_date, end_date)
+            drift_monthly = calculate_snow_drift(lat, lon, start_date, end_date, freq="M")
         except FileNotFoundError as e:
             st.error(str(e))
             st.stop()
-        results.append({"year": f"{y}-{y+1}", "snow_drift_kgm": drift})
+        annual_results.append({"year": f"{y}-{y+1}", "snow_drift_kgm": drift})
+        monthly_results.append(drift_monthly)
 
-    df_drift = pd.DataFrame(results)
-    df_drift["snow_drift_tonnesm"] = df_drift["snow_drift_kgm"] / 1000.0
-
+    # Annual plot
+    df_annual = pd.DataFrame(annual_results)
+    df_annual["snow_drift_tonnesm"] = df_annual["snow_drift_kgm"] / 1000.0
     st.write("### Annual snow drift (July–June)")
-    st.bar_chart(df_drift.set_index("year")["snow_drift_tonnesm"])
+    st.bar_chart(df_annual.set_index("year")["snow_drift_tonnesm"])
 
+    # Monthly plots
+    st.write("### Monthly snow drift (kg/m²)")
+    for i, df_month in enumerate(monthly_results):
+        st.write(f"Season: {years[i]}-{years[i]+1}")
+        st.line_chart(df_month.set_index("month")["snow_drift_kgm"])
+
+    # Wind rose
     st.write("### Wind rose")
     try:
         fig = plot_wind_rose(lat, lon, start_year, end_year)
