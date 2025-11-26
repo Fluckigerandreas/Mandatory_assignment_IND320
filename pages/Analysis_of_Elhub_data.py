@@ -3,7 +3,7 @@ import pandas as pd
 import plotly.express as px
 
 # ✔ Use the updated shared cached loader
-from data_loader import load_production
+from Data_loader import load_production
 
 # -------------------------------
 # LOAD DATA (cached globally)
@@ -115,9 +115,10 @@ with col2:
     else:
         # --- SUM across price areas ---
         df_sum = (
-            df_filtered
-            .groupby(["starttime", "productiongroup"], as_index=False)["quantitykwh"].sum()
-            .sort_values("starttime")
+        df_filtered
+        .groupby([df_filtered.index, "productiongroup"], as_index=False)["quantitykwh"].sum()
+        .rename(columns={"index": "starttime"})
+        .sort_values("starttime")
         )
 
         # --- Create the line chart ---
