@@ -1,43 +1,20 @@
 import streamlit as st
 import pandas as pd
-from pymongo import MongoClient
-import certifi
 import plotly.express as px
 
-# -------------------------------
-# CACHE DATA LOADING
-# -------------------------------
-@st.cache_data(show_spinner="Loading data from MongoDB...")
-def load_data():
-    """Load data from MongoDB with caching."""
-    uri = st.secrets["mongo"]["uri"]
-    ca = certifi.where()
-    client = MongoClient(uri, tls=True, tlsCAFile=ca)
-    db = client['Elhub']
-    collection = db['Data']
-
-    data = list(collection.find())
-    if not data:
-        return pd.DataFrame()  # Empty DataFrame fallback
-
-    df = pd.DataFrame(data)
-    df["starttime"] = pd.to_datetime(df["starttime"])
-
-    # Remove duplicates (fix NO1 duplicate issue)
-    df = df.drop_duplicates(subset=["pricearea", "productiongroup", "starttime"], keep="first").reset_index(drop=True)
-    return df
-
+# ✔ Import the shared cached loader
+from data_loader import load_production
 
 # -------------------------------
-# LOAD DATA
+# LOAD DATA (cached globally)
 # -------------------------------
-df = load_data()
+df = load_production()
 
 if df.empty:
-    st.error("No data found in MongoDB.")
+    st.error("No production data found in MongoDB.")
     st.stop()
 
-st.caption(f"✅ Loaded {len(df)} unique records after removing duplicates (cached).")
+st.caption(f"✅ Loaded {len(df)} production records (cached across all pages).")
 
 
 # -------------------------------
@@ -136,10 +113,12 @@ with col2:
     if df_filtered.empty:
         st.warning("No data for this selection.")
     else:
-        # --- SUM UP across price areas ---
+        # --- SUM across price areas ---
         df_sum = (
             df_filtered
-            .groupby(["starttime", "productiongroup"], as_index=False)["quantitykwh"].sum().sort_values("starttime"))
+            .groupby(["starttime", "productiongroup"], as_index=False)["quantitykwh"].sum()
+            .sort_values("starttime")
+        )
 
         # --- Create the line chart ---
         fig_line = px.line(
@@ -164,5 +143,5 @@ with st.expander("ℹ️ Data Source"):
     st.write("""
     The data in this dashboard comes from the ELHUB API, showing hourly electricity
     production by price area and production group. It’s stored in MongoDB and visualized here interactively.
-    Update
     """)
+
