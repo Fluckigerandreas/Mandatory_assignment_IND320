@@ -33,7 +33,7 @@ def normalize_area_name(name):
 # ==============================================================================
 # Load GeoJSON
 # ==============================================================================
-geojson_path = "/workspaces/blank-app/file.geojson"
+geojson_path = "file.geojson"
 if not geojson_path.exists():
     st.error(f"GeoJSON file not found at {geojson_path}")
     st.stop()
