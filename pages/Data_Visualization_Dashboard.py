@@ -1,8 +1,11 @@
-# Page3.py
+# ======================================================
+# Page3.py — Streamlit with Plotly
+# ======================================================
 import streamlit as st
 import pandas as pd
-import altair as alt
 import requests
+import plotly.express as px
+import plotly.graph_objects as go
 
 st.set_page_config(page_title="Weather Data Plot", page_icon="📈")
 st.title("📊 Weather Data Visualization")
@@ -39,7 +42,7 @@ def load_data_api(lat, lon, year=2021, timezone="Europe/Oslo"):
     data = r.json()["hourly"]
     df = pd.DataFrame(data)
     df["time"] = pd.to_datetime(df["time"])
-    df["month"] = df["time"].dt.to_period("M")  # helper column
+    df["month"] = df["time"].dt.to_period("M")
     return df
 
 # --- Page controls ---
@@ -79,27 +82,28 @@ if selected_column == "All":
         var_name="Variable", 
         value_name="Value"
     )
-    chart = (
-        alt.Chart(chart_data)
-        .mark_line()
-        .encode(
-            x=alt.X("time:T", title="Time"),
-            y=alt.Y("Value:Q", title="Value"),
-            color="Variable:N",
-            tooltip=["time:T", "Variable:N", "Value:Q"]
-        )
-        .properties(width=800, height=400, title="All Weather Variables")
+    fig = px.line(
+        chart_data,
+        x="time",
+        y="Value",
+        color="Variable",
+        labels={"time": "Time", "Value": "Value"},
+        title="All Weather Variables"
     )
 else:
-    chart = (
-        alt.Chart(filtered_df)
-        .mark_line(point=True)
-        .encode(
-            x=alt.X("time:T", title="Time"),
-            y=alt.Y(f"{selected_column}:Q", title=selected_column),
-            tooltip=["time:T", f"{selected_column}:Q"]
-        )
-        .properties(width=800, height=400, title=f"{selected_column} over Time")
+    fig = px.line(
+        filtered_df,
+        x="time",
+        y=selected_column,
+        labels={"time": "Time", selected_column: selected_column},
+        title=f"{selected_column} over Time"
     )
+    fig.update_traces(mode="lines+markers", hovertemplate="%{x}<br>%{y}")
 
-st.altair_chart(chart)
+fig.update_layout(
+    width=900,
+    height=500,
+    hovermode="x unified"
+)
+st.plotly_chart(fig, use_container_width=True)
+
