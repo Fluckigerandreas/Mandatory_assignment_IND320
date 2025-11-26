@@ -14,6 +14,10 @@ if df is None or df.empty:
     st.error("No production data found in MongoDB.")
     st.stop()
 
+# Ensure datetime index
+if not pd.api.types.is_datetime64_any_dtype(df.index):
+    df.index = pd.to_datetime(df.index)
+
 st.caption(f"✅ Loaded {len(df)} production records (cached across all pages).")
 
 
@@ -113,12 +117,15 @@ with col2:
     if df_filtered.empty:
         st.warning("No data for this selection.")
     else:
-        # --- SUM across price areas ---
+        # Reset index to turn datetime index into a column
+        df_filtered_reset = df_filtered.reset_index()
+
+        # Aggregate by datetime and production group
         df_sum = (
-        df_filtered
-        .groupby([df_filtered.index, "productiongroup"], as_index=False)["quantitykwh"].sum()
-        .rename(columns={"index": "starttime"})
-        .sort_values("starttime")
+            df_filtered_reset
+            .groupby(["index", "productiongroup"], as_index=False)["quantitykwh"].sum()
+            .rename(columns={"index": "starttime"})
+            .sort_values("starttime")
         )
 
         # --- Create the line chart ---
