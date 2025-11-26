@@ -110,4 +110,4 @@ else:
     fig.update_traces(mode="lines+markers", hovertemplate="%{x}<br>%{y}")
 
 fig.update_layout(width=900, height=500, hovermode="x unified")
-st.plotly_chart(fig, use_container_width=True)
+st.plotly_chart(fig, width='stretch')
