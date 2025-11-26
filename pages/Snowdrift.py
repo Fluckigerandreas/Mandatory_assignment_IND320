@@ -59,22 +59,28 @@ def download_era5(lat, lon, start_year, end_year, timezone="Europe/Oslo"):
 
         response = client.weather_api(url, params=params)[0]
         hourly = response.Hourly()
-        if len(hourly.Time()) == 0:
+        times = np.atleast_1d(hourly.Time())
+        if len(times) == 0:
             continue
+
+        # Convert start/end to single Timestamps
+        start_ts = pd.to_datetime(times[0], unit="s", utc=True)
+        end_ts = pd.to_datetime(np.atleast_1d(hourly.TimeEnd())[0], unit="s", utc=True)
+        interval_seconds = hourly.Interval()
 
         df = pd.DataFrame(
             {
                 "time": pd.date_range(
-                    start=pd.to_datetime(hourly.Time(), unit="s", utc=True),
-                    end=pd.to_datetime(hourly.TimeEnd(), unit="s", utc=True),
-                    freq=pd.Timedelta(seconds=hourly.Interval()),
+                    start=start_ts,
+                    end=end_ts,
+                    freq=pd.Timedelta(seconds=interval_seconds),
                     inclusive="left",
                 ),
-                "temperature_2m": hourly.Variables(0).ValuesAsNumpy(),
-                "precipitation": hourly.Variables(1).ValuesAsNumpy(),
-                "wind_speed_10m": hourly.Variables(2).ValuesAsNumpy(),
-                "wind_gusts_10m": hourly.Variables(3).ValuesAsNumpy(),
-                "wind_direction_10m": hourly.Variables(4).ValuesAsNumpy(),
+                "temperature_2m": np.atleast_1d(hourly.Variables(0).ValuesAsNumpy()),
+                "precipitation": np.atleast_1d(hourly.Variables(1).ValuesAsNumpy()),
+                "wind_speed_10m": np.atleast_1d(hourly.Variables(2).ValuesAsNumpy()),
+                "wind_gusts_10m": np.atleast_1d(hourly.Variables(3).ValuesAsNumpy()),
+                "wind_direction_10m": np.atleast_1d(hourly.Variables(4).ValuesAsNumpy()),
             }
         )
         df["time"] = df["time"].dt.tz_convert(timezone)
