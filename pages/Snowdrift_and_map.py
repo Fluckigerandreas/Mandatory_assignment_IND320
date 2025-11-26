@@ -207,8 +207,8 @@ if st.session_state.clicked_point:
 
     start_year, end_year = st.slider(
         "Select seasonal year range (July–June)",
-        min_value=2021, max_value=2023,
-        value=(2021, 2022)
+        min_value=2020, max_value=2023,
+        value=(2021, 2023)
     )
 
     years = range(start_year, end_year + 1)
