@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import requests
 import plotly.express as px
-from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 from requests.adapters import HTTPAdapter
 

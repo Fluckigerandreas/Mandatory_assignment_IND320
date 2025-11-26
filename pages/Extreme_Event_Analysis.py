@@ -1,17 +1,14 @@
 # ======================================================
-# NewB_single_file.py — Streamlit page
+# NewB_single_file_plotly.py — Streamlit page
 # ======================================================
 import streamlit as st
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
-from scipy.fftpack import dct, idct
+from scipy.signal import butter, filtfilt
 from sklearn.neighbors import LocalOutlierFactor
-from scipy import signal
 import requests_cache
 from retry_requests import retry
 import openmeteo_requests
-from scipy.signal import butter, filtfilt
 import plotly.graph_objects as go
 
 # ======================================================
@@ -83,101 +80,70 @@ def detect_temperature_outliers_filter(df, temp_col="temperature_2m", cutoff_hou
     s = df[temp_col].dropna().sort_index()
     x = s.values.astype(float)
 
-    # --- Define cutoff frequency (normalized) ---
     nyquist = 0.5 / sample_rate_hours
-    cutoff_freq = 1 / cutoff_hours  # convert period (hours) → frequency (1/hour)
+    cutoff_freq = 1 / cutoff_hours
     normal_cutoff = cutoff_freq / nyquist
 
-    # --- Low-pass Butterworth filter to estimate the trend ---
-    b, a = butter(N=4, Wn=normal_cutoff, btype="low", analog=False)
+    b, a = butter(N=4, Wn=normal_cutoff, btype="low")
     trend = filtfilt(b, a, x)
 
-    # --- High-pass (detrended) residuals ---
     residual = x - trend
-
-    # --- Local SPC boundaries around the trend ---
-    sigma_hat = 1.4826 * np.median(np.abs(residual - np.median(residual)))  # robust std estimate
+    sigma_hat = 1.4826 * np.median(np.abs(residual - np.median(residual)))
     upper = trend + n_std * sigma_hat
     lower = trend - n_std * sigma_hat
-
-    # --- Detect outliers ---
     mask = (x > upper) | (x < lower)
     outliers = pd.DataFrame({"temperature": x[mask]}, index=s.index[mask])
 
-    # --- Plot ---
-    fig, ax = plt.subplots(figsize=(14, 4))
-    ax.plot(s.index, x, lw=0.8, label="Temperature (°C)", alpha=0.8)
-    ax.plot(s.index, trend, color="black", lw=1.2, label="Low-pass trend")
-    ax.fill_between(s.index, lower, upper, color="orange", alpha=0.2,
-                    label=f"SPC limits (±{n_std:.1f}σ)")
-    ax.scatter(outliers.index, outliers["temperature"], color="red", s=12, zorder=5,
-               label=f"Outliers ({len(outliers)})")
+    # --- Plotly Interactive ---
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=s.index, y=x, mode="lines", name="Temperature (°C)", line=dict(color="blue", width=1.5)))
+    fig.add_trace(go.Scatter(x=s.index, y=trend, mode="lines", name="Trend", line=dict(color="black", width=2)))
+    fig.add_trace(go.Scatter(x=s.index, y=upper, mode="lines", line=dict(color="orange", width=0.5), name="SPC upper"))
+    fig.add_trace(go.Scatter(x=s.index, y=lower, mode="lines", line=dict(color="orange", width=0.5), name="SPC lower", fill='tonexty', fillcolor='rgba(255,165,0,0.2)'))
+    fig.add_trace(go.Scatter(x=outliers.index, y=outliers["temperature"], mode="markers", name=f"Outliers ({len(outliers)})", marker=dict(color="red", size=6)))
 
-    ax.set_title("Temperature Outliers (Highpass–Lowpass + Trend-following SPC)")
-    ax.legend()
-    plt.tight_layout()
-    st.pyplot(fig)
+    fig.update_layout(title="Temperature Outliers (Highpass–Lowpass + SPC)",
+                      xaxis_title="Time", yaxis_title="Temperature (°C)",
+                      template="plotly_white", hovermode="x unified", height=500)
+    st.plotly_chart(fig, use_container_width=True)
 
     return outliers
 
+# ======================================================
+# PRECIPITATION LOF ANOMALIES
+# ======================================================
 def detect_precipitation_lof(df, precip_col="precipitation", contamination=0.01):
-    """
-    Detect extreme precipitation anomalies using LOF with contamination parameter.
-    """
     p = df[precip_col].fillna(0).sort_index()
-
-    # --- Only consider non-zero precipitation values ---
     nonzero_mask = p.values > 0
-    X_nonzero = np.log1p(p.values[nonzero_mask]).reshape(-1, 1)  # log-transform
+    X_nonzero = np.log1p(p.values[nonzero_mask]).reshape(-1, 1)
 
     if len(X_nonzero) == 0:
         st.warning("No non-zero precipitation values to analyze.")
         return pd.DataFrame(columns=[precip_col])
 
-    # --- Fit LOF using contamination ---
     n_neighbors = min(len(X_nonzero) - 1, 20)
     lof = LocalOutlierFactor(n_neighbors=n_neighbors, contamination=contamination)
-    y_pred = lof.fit_predict(X_nonzero)  # -1 = outlier, 1 = inlier
+    y_pred = lof.fit_predict(X_nonzero)
 
-    # Map anomalies back to original index
-    outliers = pd.DataFrame(
-        {precip_col: p.values[nonzero_mask][y_pred == -1]},
-        index=p.index[nonzero_mask][y_pred == -1]
-    )
+    outliers = pd.DataFrame({precip_col: p.values[nonzero_mask][y_pred == -1]},
+                            index=p.index[nonzero_mask][y_pred == -1])
 
-    # --- Interactive Plotly chart ---
     fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=p.index, y=p.values,
-        mode="lines",
-        name="Precipitation (mm)",
-        line=dict(width=1.2, color="blue"),
-        hovertemplate="%{x}<br>Precip: %{y:.2f} mm<extra></extra>"
-    ))
-    fig.add_trace(go.Scatter(
-        x=outliers.index, y=outliers[precip_col],
-        mode="markers",
-        name=f"LOF anomalies ({len(outliers)})",
-        marker=dict(color="red", size=6, line=dict(width=1, color="darkred")),
-        hovertemplate="Outlier<br>%{x}<br>Precip: %{y:.2f} mm<extra></extra>"
-    ))
-    fig.update_layout(
-        title=f"Extreme Precipitation Anomalies (LOF, contamination={contamination:.3f})",
-        xaxis_title="Time",
-        yaxis_title="Precipitation (mm)",
-        template="plotly_white",
-        hovermode="x unified",
-        legend=dict(x=0.01, y=0.99, bgcolor="rgba(255,255,255,0.5)"),
-        height=450,
-    )
-
+    fig.add_trace(go.Scatter(x=p.index, y=p.values, mode="lines", name="Precipitation (mm)", line=dict(color="blue", width=1.2)))
+    fig.add_trace(go.Scatter(x=outliers.index, y=outliers[precip_col], mode="markers",
+                             name=f"LOF anomalies ({len(outliers)})",
+                             marker=dict(color="red", size=6, line=dict(width=1, color="darkred"))))
+    fig.update_layout(title=f"Precipitation Anomalies (LOF, contamination={contamination:.3f})",
+                      xaxis_title="Time", yaxis_title="Precipitation (mm)",
+                      template="plotly_white", hovermode="x unified", height=450)
     st.plotly_chart(fig, use_container_width=True)
+
     return outliers
 
 # ======================================================
 # STREAMLIT PAGE
 # ======================================================
-st.title("New B: Outlier & Anomaly Analysis")
+st.title("Outlier & Anomaly Analysis (Weather Data)")
 
 city_name = st.selectbox("Select city", [c["city"] for c in price_areas])
 city_info = next(c for c in price_areas if c["city"] == city_name)
@@ -190,22 +156,16 @@ st.write(f"✅ Loaded weather data for {city_name} ({len(weather_df)} rows)")
 tab1, tab2 = st.tabs(["Temperature Outliers (SPC)", "Precipitation Anomalies (LOF)"])
 
 with tab1:
-    st.header("Temperature Outliers (DCT + SPC)")
+    st.header("Temperature Outliers")
     n_std = st.number_input("Number of standard deviations", min_value=0.1, value=2.0, step=0.1)
-    cutoff_hours = st.number_input("Cutoff hours for DCT smoothing", min_value=1, value=400, step=1)
+    cutoff_hours = st.number_input("Cutoff hours for smoothing", min_value=1, value=400, step=1)
     temp_outliers = detect_temperature_outliers_filter(weather_df, cutoff_hours=cutoff_hours, n_std=n_std)
     st.write(f"Total outliers detected: {len(temp_outliers)}")
     st.dataframe(temp_outliers.head(20))
 
 with tab2:
-    st.header("Precipitation Anomalies (LOF)")
-    contamination = st.slider(
-        "Proportion of anomalies (contamination)",
-        min_value=0.001,
-        max_value=0.1,
-        value=0.01,
-        step=0.01
-    )
+    st.header("Precipitation Anomalies")
+    contamination = st.slider("Proportion of anomalies (contamination)", min_value=0.001, max_value=0.1, value=0.01, step=0.01)
     precip_outliers = detect_precipitation_lof(weather_df, contamination=contamination)
-    st.write(f"**Total anomalies detected:** {len(precip_outliers)}")
+    st.write(f"Total anomalies detected: {len(precip_outliers)}")
     st.dataframe(precip_outliers.head(20))
