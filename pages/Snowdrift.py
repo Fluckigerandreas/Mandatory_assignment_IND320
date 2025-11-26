@@ -7,6 +7,8 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 import requests_cache
+from retry_requests import retry
+import openmeteo_requests
 
 # ------------------ Streamlit page ------------------
 st.set_page_config(layout="wide")
@@ -28,12 +30,15 @@ def extract_geojson_area(feature):
 if "clicked_point" not in st.session_state:
     st.session_state.clicked_point = (59.663, 10.762)  # default NMBU Ås
 
-# ------------------ Cached ERA5 downloader ------------------
-session = requests_cache.CachedSession(".cache", expire_after=86400)
-
+# ------------------ ERA5 downloader using openmeteo_requests ------------------
 @st.cache_data(show_spinner="Downloading ERA5 weather...", persist=True)
 def download_era5(lat, lon, start_year, end_year, timezone="Europe/Oslo"):
-    dfs = []
+    """Download ERA5 hourly weather data via Open-Meteo with retries."""
+    cache_session = requests_cache.CachedSession(".cache", expire_after=-1)
+    retry_session = retry(cache_session, retries=5, backoff_factor=0.2)
+    client = openmeteo_requests.Client(session=retry_session)
+
+    all_years = []
     for year in range(start_year, end_year + 1):
         url = "https://archive-api.open-meteo.com/v1/archive"
         params = {
@@ -41,20 +46,43 @@ def download_era5(lat, lon, start_year, end_year, timezone="Europe/Oslo"):
             "longitude": lon,
             "start_date": f"{year}-01-01",
             "end_date": f"{year}-12-31",
-            "timezone": timezone,
+            "hourly": [
+                "temperature_2m",
+                "precipitation",
+                "wind_speed_10m",
+                "wind_gusts_10m",
+                "wind_direction_10m",
+            ],
             "models": "era5",
-            "hourly": ["temperature_2m", "precipitation", "wind_speed_10m",
-                       "wind_direction_10m", "wind_gusts_10m"]
+            "timezone": timezone,
         }
-        r = session.get(url, params=params)
-        r.raise_for_status()
-        data = r.json()
-        df = pd.DataFrame(data["hourly"])
-        df["time"] = pd.to_datetime(df["time"], utc=True)
-        df = df.set_index("time")
+
+        response = client.weather_api(url, params=params)[0]
+        hourly = response.Hourly()
+        if len(hourly.Time()) == 0:
+            continue
+
+        df = pd.DataFrame(
+            {
+                "time": pd.date_range(
+                    start=pd.to_datetime(hourly.Time(), unit="s", utc=True),
+                    end=pd.to_datetime(hourly.TimeEnd(), unit="s", utc=True),
+                    freq=pd.Timedelta(seconds=hourly.Interval()),
+                    inclusive="left",
+                ),
+                "temperature_2m": hourly.Variables(0).ValuesAsNumpy(),
+                "precipitation": hourly.Variables(1).ValuesAsNumpy(),
+                "wind_speed_10m": hourly.Variables(2).ValuesAsNumpy(),
+                "wind_gusts_10m": hourly.Variables(3).ValuesAsNumpy(),
+                "wind_direction_10m": hourly.Variables(4).ValuesAsNumpy(),
+            }
+        )
+        df["time"] = df["time"].dt.tz_convert(timezone)
+        df.set_index("time", inplace=True)
         df["season"] = df.index.to_series().apply(lambda dt: dt.year if dt.month >= 7 else dt.year-1)
-        dfs.append(df)
-    return pd.concat(dfs) if dfs else pd.DataFrame()
+        all_years.append(df)
+
+    return pd.concat(all_years) if all_years else pd.DataFrame()
 
 # ------------------ Snow transport functions ------------------
 def compute_Qupot(hourly_wind_speeds, dt=3600):
@@ -200,4 +228,3 @@ else:
     avg_sectors = compute_average_sector(df_all)
     overall_avg = yearly_df["Qt"].mean() if not yearly_df.empty else 0
     plot_wind_rose(avg_sectors, overall_avg)
-
