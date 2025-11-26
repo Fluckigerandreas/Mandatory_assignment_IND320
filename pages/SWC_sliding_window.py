@@ -1,13 +1,23 @@
+# SWC_sliding_window.py
 import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
-from pymongo import MongoClient
-import certifi
+from Data_loader import load_production, load_consumption
 import requests
+from datetime import datetime
+
+st.set_page_config(layout="wide")
+st.title("Sliding Window Correlation: Meteorology vs Energy")
 
 # -------------------------
-# Data Loading (cached)
+# Fixed location and year
+# -------------------------
+LAT, LON = 59.91, 10.75
+YEAR = 2023
+
+# -------------------------
+# Download ERA5 weather (cached)
 # -------------------------
 @st.cache_data(show_spinner="Downloading ERA5 weather...")
 def download_era5(lat, lon, year, timezone="Europe/Oslo"):
@@ -29,65 +39,16 @@ def download_era5(lat, lon, year, timezone="Europe/Oslo"):
     df["time"] = pd.to_datetime(df["time"], utc=True)
     df = df.set_index("time")
     
-    # Ensure numeric
     numeric_cols = ["temperature_2m", "precipitation", "wind_speed_10m",
                     "wind_direction_10m", "wind_gusts_10m"]
     df[numeric_cols] = df[numeric_cols].apply(pd.to_numeric, errors="coerce")
     df = df.dropna()
-    
-    # Remove duplicate timestamps
-    df = df[~df.index.duplicated(keep='first')]
-    return df
-
-@st.cache_data(show_spinner="Loading production data...")
-def load_production():
-    client = MongoClient(st.secrets["mongo"]["uri"], tls=True, tlsCAFile=certifi.where())
-    db = client["Elhub"]
-    df = pd.DataFrame(list(db["Data"].find()))
-    if df.empty:
-        return df
-    df["starttime"] = pd.to_datetime(df["starttime"], errors="coerce", utc=True)
-    df = df.dropna(subset=["starttime"])
-    if "pricearea" in df.columns:
-        df["pricearea"] = df["pricearea"].apply(lambda x: x if x else "NO")
-    
-    df["quantitykwh"] = pd.to_numeric(df["quantitykwh"], errors="coerce")
-    df = df.dropna(subset=["quantitykwh"])
-    
-    df = df.groupby(["pricearea", "productiongroup", "starttime"], as_index=False).agg({"quantitykwh": "sum"})
-    df.set_index("starttime", inplace=True)
-    
-    # Aggregate duplicates
-    df = df.groupby(df.index).sum()
-    return df
-
-@st.cache_data(show_spinner="Loading consumption data...")
-def load_consumption():
-    client = MongoClient(st.secrets["mongo"]["uri"], tls=True, tlsCAFile=certifi.where())
-    db = client["Consumption_Elhub"]
-    df = pd.DataFrame(list(db["Data"].find()))
-    if df.empty:
-        return df
-    df["starttime"] = pd.to_datetime(df["starttime"], utc=True)
-    if "pricearea" in df.columns:
-        df["pricearea"] = df["pricearea"].apply(lambda x: x if x else "NO")
-    
-    df["quantitykwh"] = pd.to_numeric(df["quantitykwh"], errors="coerce")
-    df = df.dropna(subset=["quantitykwh"])
-    
-    df = df.groupby(["pricearea", "consumptiongroup", "starttime"], as_index=False).agg({"quantitykwh": "sum"})
-    df.set_index("starttime", inplace=True)
-    
-    # Aggregate duplicates
-    df = df.groupby(df.index).sum()
+    df = df[~df.index.duplicated(keep="first")]
     return df
 
 # -------------------------
-# Load Data
+# Load energy data (cached)
 # -------------------------
-st.title("Sliding Window Correlation: Meteorology vs Energy")
-
-weather_df = download_era5(lat=59.91, lon=10.75, year=2023)
 prod_df = load_production()
 cons_df = load_consumption()
 
@@ -95,59 +56,76 @@ cons_df = load_consumption()
 # Sidebar selectors
 # -------------------------
 st.sidebar.header("Settings")
-variable_weather = st.sidebar.selectbox("Select meteorological variable", weather_df.columns)
+variable_weather = st.sidebar.selectbox("Select meteorological variable", 
+                                        ["temperature_2m", "precipitation", "wind_speed_10m", 
+                                         "wind_direction_10m", "wind_gusts_10m"])
 variable_energy_type = st.sidebar.radio("Select energy type", ["Production", "Consumption"])
+
 if variable_energy_type == "Production":
-    variable_energy = st.sidebar.selectbox("Select production group", prod_df.columns)
-    energy_df = prod_df
+    energy_df = prod_df.reset_index()
+    group_col = "productiongroup"
 else:
-    variable_energy = st.sidebar.selectbox("Select consumption group", cons_df.columns)
-    energy_df = cons_df
+    energy_df = cons_df.reset_index()
+    group_col = "consumptiongroup"
+
+# Select group
+groups = sorted(energy_df[group_col].dropna().unique())
+selected_group = st.sidebar.selectbox("Select group", groups)
 
 lag = st.sidebar.slider("Lag (hours)", 0, 100, 0)
 window = st.sidebar.slider("Sliding window length", 1, 60, 45)
-center = st.sidebar.slider("Center index for window", window//2, len(weather_df)-window//2, len(weather_df)//2)
+center = st.sidebar.slider("Center index for window", window//2, 1000, 500)  # center safe default
 
 # -------------------------
-# Align Data
+# Prepare energy series
 # -------------------------
-combined_df = pd.concat([weather_df[variable_weather], energy_df[variable_energy]], axis=1, join="inner")
+energy_series = energy_df[energy_df[group_col]==selected_group].copy()
+energy_series["quantitykwh"] = pd.to_numeric(energy_series["quantitykwh"], errors="coerce")
+energy_series = energy_series.dropna(subset=["quantitykwh"])
+
+# Aggregate duplicates by timestamp
+energy_series = energy_series.groupby("starttime")["quantitykwh"].sum()
+
+# -------------------------
+# Download weather
+# -------------------------
+weather_df = download_era5(LAT, LON, YEAR)
+
+# -------------------------
+# Align data
+# -------------------------
+combined_df = pd.concat([weather_df[variable_weather], energy_series], axis=1, join="inner")
 combined_df = combined_df.apply(pd.to_numeric, errors="coerce").dropna()
 x = combined_df[variable_weather]
-y = combined_df[variable_energy]
+y = combined_df["quantitykwh"]
 
 # -------------------------
-# Sliding Window Correlation
+# Sliding window correlation
 # -------------------------
 def sliding_window_corr(x, y, lag=0, window=45):
-    # Shift x by lag
     x_shifted = x.shift(lag)
-    
-    # Align indices
     combined = pd.concat([x_shifted, y], axis=1).dropna()
-    x_aligned = combined.iloc[:,0]
-    y_aligned = combined.iloc[:,1]
-    
-    # Compute rolling correlation
-    swc = y_aligned.rolling(window, center=True).corr(x_aligned)
+    swc = combined.iloc[:,1].rolling(window, center=True).corr(combined.iloc[:,0])
     return swc
 
 swc = sliding_window_corr(x, y, lag=lag, window=window)
 
 # Overall correlation
-corr_value = np.corrcoef(y[lag:].values, x[:-lag].values if lag>0 else x.values)[0,1]
+if lag > 0:
+    corr_value = np.corrcoef(y[lag:].values, x[:-lag].values)[0,1]
+else:
+    corr_value = np.corrcoef(y.values, x.values)[0,1]
 
 # -------------------------
 # Plot with Plotly
 # -------------------------
 fig = go.Figure()
 
-# Highlight range safely
 highlight_start = max(center - window//2, 0)
 highlight_end = min(center + window//2, len(y))
 
 # Energy
-fig.add_trace(go.Scatter(y=y, x=y.index, mode="lines", name=f"{variable_energy}"))
+fig.add_trace(go.Scatter(y=y, x=y.index, mode="lines", name=f"{selected_group}"))
 fig.add_trace(go.Scatter(y=y.iloc[highlight_start:highlight_end],
                          x=y.index[highlight_start:highlight_end],
                          mode="lines", line=dict(color="red"), name="Highlighted"))
@@ -161,7 +139,7 @@ fig.add_trace(go.Scatter(y=x.iloc[highlight_start:highlight_end],
 # Sliding window correlation
 fig.add_trace(go.Scatter(y=swc, x=swc.index, mode="lines", name="SWC"))
 
-# Highlight SWC center safely
+# Highlight SWC center
 if len(swc) > 0:
     center_swc = min(len(swc)//2, len(swc)-1)
     fig.add_trace(go.Scatter(y=[swc.iloc[center_swc]],
@@ -170,8 +148,8 @@ if len(swc) > 0:
                              marker=dict(color="red", size=10)))
 
 fig.update_layout(height=800, xaxis_title="Time", yaxis_title="Values / Correlation",
-                  title=f"Sliding Window Correlation (lag={lag}, window={window})\nCorrelation={corr_value:.3f}")
+                  title=f"Sliding Window Correlation\nlag={lag}, window={window}, correlation={corr_value:.3f}")
 
 st.plotly_chart(fig, use_container_width=True)
+st.write(f"Correlation between **{selected_group}** and **{variable_weather}** lagged {lag} timepoints: **{corr_value:.3f}**")
 
-st.write(f"Correlation between **{variable_energy}** and **{variable_weather}** lagged {lag} timepoints: **{corr_value:.3f}**")
