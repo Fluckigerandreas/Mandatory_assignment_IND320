@@ -150,7 +150,7 @@ if map_data and map_data.get("last_clicked"):
     st.session_state.clicked_point = (lat, lon)
 
 # ------------------ User Inputs ------------------
-start_year = st.number_input("Start Year", 2021, 2024, 2021)
+start_year = st.number_input("Start Year", 2020, 2024, 2021)
 end_year = st.number_input("End Year", start_year, 2024, 2022)
 
 T = 3000
