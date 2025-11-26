@@ -201,6 +201,19 @@ if st.session_state.clicked_point:
 st.write("---")
 st.header("❄️ Snow Drift Explorer")
 
+def calculate_monthly_snow_drift(lat, lon, start_date, end_date):
+    """Calculate snow drift for each month between start_date and end_date."""
+    monthly = []
+    current_start = start_date
+    while current_start < end_date:
+        current_end = (current_start + pd.offsets.MonthEnd(0)).replace(hour=23, minute=59, second=59)
+        if current_end > end_date:
+            current_end = end_date
+        drift = calculate_snow_drift(lat, lon, current_start, current_end)
+        monthly.append({"month": current_start.strftime("%Y-%m"), "snow_drift_kgm": drift})
+        current_start = current_end + pd.Timedelta(seconds=1)
+    return pd.DataFrame(monthly)
+
 if st.session_state.clicked_point:
     lat, lon = st.session_state.clicked_point
     st.write(f"Using coordinates: {lat:.3f}, {lon:.3f}")
@@ -220,7 +233,7 @@ if st.session_state.clicked_point:
         end_date = pd.Timestamp(year=y+1, month=6, day=30, hour=23, minute=59, second=59)
         try:
             drift = calculate_snow_drift(lat, lon, start_date, end_date)
-            drift_monthly = calculate_snow_drift(lat, lon, start_date, end_date, freq="M")
+            drift_monthly = calculate_monthly_snow_drift(lat, lon, start_date, end_date)
         except FileNotFoundError as e:
             st.error(str(e))
             st.stop()
