@@ -113,7 +113,7 @@ st.subheader(f"Selected series: {meta}")
 fig_series = go.Figure()
 fig_series.add_trace(go.Scatter(x=series.index, y=series.values, mode="lines", name="Observed"))
 fig_series.update_layout(title="Observed Series", xaxis_title="Date", yaxis_title="Quantity kWh")
-st.plotly_chart(fig_series, use_container_width=True)
+st.plotly_chart(fig_series, width="stretch")
 
 # -------------------------
 # Forecast parameters
@@ -152,5 +152,5 @@ if forecast_button:
         line=dict(color="rgba(255,255,255,0)"), showlegend=True, name="Confidence Interval"
     ))
     fig_forecast.update_layout(title="SARIMAX Forecast", xaxis_title="Date", yaxis_title="Quantity kWh")
-    st.plotly_chart(fig_forecast, use_container_width=True)
+    st.plotly_chart(fig_forecast, width="stretch")
 
