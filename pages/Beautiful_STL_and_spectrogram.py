@@ -1,58 +1,27 @@
 # ======================================================
-# NewA.py — Streamlit page
+# NewA.py — Streamlit page (Plotly + Global Loader)
 # ======================================================
 import streamlit as st
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
 from statsmodels.tsa.seasonal import STL
 from scipy import signal
-from pymongo.mongo_client import MongoClient
-import certifi
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+
+# Import global data loader
+from your_global_loader import load_production  # <-- replace with actual import path
 
 # ======================================================
-# 1) Load data from MongoDB (cached)
-# ======================================================
-@st.cache_data(show_spinner="Loading data from MongoDB...")
-def load_data():
-    """Load data from MongoDB with caching, aggregate duplicates, produce time series."""
-    uri = st.secrets["mongo"]["uri"]
-    ca = certifi.where()
-    client = MongoClient(uri, tls=True, tlsCAFile=ca)
-    db = client['Elhub']
-    collection = db['Data']
-
-    data = list(collection.find())
-    if not data:
-        return pd.DataFrame()  # Empty DataFrame fallback
-
-    df = pd.DataFrame(data)
-    df["starttime"] = pd.to_datetime(df["starttime"])
-
-    # Aggregate duplicates by summing quantities
-    df = df.groupby(["pricearea", "productiongroup", "starttime"], as_index=False).agg({"quantitykwh": "sum"})
-
-    # Set datetime index for time series
-    df.set_index("starttime", inplace=True)
-
-    return df
-
-# ======================================================
-# 2) STL decomposition
+# 1) STL decomposition
 # ======================================================
 def stl_decompose_series(series, period=24*7, title="STL Decomposition"):
-    """Perform STL decomposition on a time series."""
+    """Perform STL decomposition on a time series and plot with Plotly."""
     # Ensure datetime index
     series.index = pd.to_datetime(series.index, errors="coerce")
     series = series.sort_index()
 
-    # Timezone handling
-    if series.index.tz is None:
-        series = series.tz_localize("UTC")
-    else:
-        series = series.tz_convert("UTC")
-
-    # FIX: Remove duplicate timestamps
+    # Remove duplicate timestamps
     series = series.groupby(series.index).sum()
 
     # Regularize to hourly frequency
@@ -63,45 +32,58 @@ def stl_decompose_series(series, period=24*7, title="STL Decomposition"):
     stl = STL(series, period=period, robust=True)
     result = stl.fit()
 
-    # Plot
-    fig = result.plot()
-    fig.set_size_inches(14, 10)
-    fig.suptitle(f"{title}\n{series.name}", fontsize=12)
-    plt.tight_layout()
-    st.pyplot(fig)
+    # Plot with Plotly
+    fig = make_subplots(rows=4, cols=1, shared_xaxes=True,
+                        subplot_titles=["Observed", "Trend", "Seasonal", "Residual"])
+    fig.add_trace(go.Scatter(x=series.index, y=result.observed, name="Observed"), row=1, col=1)
+    fig.add_trace(go.Scatter(x=series.index, y=result.trend, name="Trend"), row=2, col=1)
+    fig.add_trace(go.Scatter(x=series.index, y=result.seasonal, name="Seasonal"), row=3, col=1)
+    fig.add_trace(go.Scatter(x=series.index, y=result.resid, name="Residual"), row=4, col=1)
+
+    fig.update_layout(height=900, width=900, title_text=f"{title}: {series.name}")
+    st.plotly_chart(fig, use_container_width=True)
 
     return result
 
-
 # ======================================================
-# 3) Spectrogram
+# 2) Spectrogram
 # ======================================================
 def plot_spectrogram(series, fs=1.0, nperseg=24*7, noverlap=None):
-    """Plot the spectrogram of a time series."""
+    """Plot the spectrogram of a time series using Plotly."""
     s = series.dropna().astype(float)
     noverlap = noverlap or nperseg // 2
     f, t, Sxx = signal.spectrogram(s.values, fs=fs, window="hann", nperseg=nperseg, noverlap=noverlap)
 
-    fig, ax = plt.subplots(figsize=(10, 5))
-    pcm = ax.pcolormesh(t, f, 10 * np.log10(Sxx + 1e-12), shading="gouraud")
-    ax.set_title("Spectrogram (dB scale)")
-    ax.set_xlabel("Window index")
-    ax.set_ylabel("Frequency [cycles/hour]")
-    plt.colorbar(pcm, ax=ax, label="dB")
-    plt.tight_layout()
-    st.pyplot(fig)
+    # Convert to dB scale
+    Sxx_db = 10 * np.log10(Sxx + 1e-12)
+
+    fig = go.Figure(data=go.Heatmap(
+        z=Sxx_db,
+        x=t,
+        y=f,
+        colorscale="Viridis",
+        colorbar=dict(title="dB")
+    ))
+    fig.update_layout(
+        title="Spectrogram (dB scale)",
+        xaxis_title="Window index",
+        yaxis_title="Frequency [cycles/hour]",
+        height=600,
+        width=900
+    )
+    st.plotly_chart(fig, use_container_width=True)
 
     return f, t, Sxx
 
 # ======================================================
-# 4) Streamlit UI
+# 3) Streamlit UI
 # ======================================================
-st.title("NewA Analysis: STL & Spectrogram")
+st.title("STL & Spectrogram")
 
-# Load data
-df = load_data()
+# Load data using global loader
+df = load_production()
 if df.empty:
-    st.warning("No data found in MongoDB.")
+    st.warning("No production data found.")
     st.stop()
 
 # Checkbox: Use all data or filter
@@ -134,3 +116,4 @@ with tab2:
     st.header("Spectrogram")
     nperseg = st.number_input("Window size (nperseg)", min_value=1, value=24*7)
     plot_spectrogram(series, nperseg=nperseg)
+
