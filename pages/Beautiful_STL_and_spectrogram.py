@@ -10,7 +10,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 # Import global data loader
-from your_global_loader import load_production  # <-- replace with actual import path
+from Data_loader import load_production  # <-- replace with actual import path
 
 # ======================================================
 # 1) STL decomposition
