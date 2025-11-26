@@ -4,10 +4,13 @@ import folium
 from streamlit_folium import st_folium
 import json
 from shapely.geometry import shape, Point, Polygon, MultiPolygon
-from pymongo import MongoClient
-import certifi
 import pandas as pd
 import branca
+
+# -------------------------
+# Use your Data_loader
+# -------------------------
+from Data_loader import load_production, load_consumption
 
 st.set_page_config(layout="wide")
 st.title("Norway Price Areas Map – Elhub Data (NO1–NO5)")
@@ -70,47 +73,8 @@ if "area_means" not in st.session_state:
     st.session_state.area_means = {}
 
 # ==============================================================================
-# MongoDB Loaders
+# Load data using Data_loader
 # ==============================================================================
-@st.cache_data(show_spinner="Loading production data...")
-def load_production():
-    client = MongoClient(st.secrets["mongo"]["uri"], tls=True, tlsCAFile=certifi.where())
-    db = client["Elhub"]
-    df = pd.DataFrame(list(db["Data"].find()))
-    
-    if df.empty:
-        return df
-
-    # Convert starttime to datetime safely
-    df["starttime"] = pd.to_datetime(df["starttime"], errors="coerce", utc=True)
-    df = df.dropna(subset=["starttime"])
-
-    # Normalize pricearea
-    if "pricearea" in df.columns:
-        df["pricearea"] = df["pricearea"].apply(normalize_to_NO)
-
-    # Aggregate quantitykwh per unique combination
-    df = df.groupby(["pricearea", "productiongroup", "starttime"], as_index=False).agg({"quantitykwh": "sum"})
-
-    # Set starttime as index (required for your later computations)
-    df.set_index("starttime", inplace=True)
-
-    return df
-
-@st.cache_data(show_spinner="Loading consumption data...")
-def load_consumption():
-    client = MongoClient(st.secrets["mongo"]["uri"], tls=True, tlsCAFile=certifi.where())
-    db = client["Consumption_Elhub"]
-    df = pd.DataFrame(list(db["Data"].find()))
-    if df.empty:
-        return df
-    df["starttime"] = pd.to_datetime(df["starttime"], utc=True)
-    if "pricearea" in df.columns:
-        df["pricearea"] = df["pricearea"].apply(normalize_to_NO)
-    df = df.groupby(["pricearea", "consumptiongroup", "starttime"], as_index=False).agg({"quantitykwh": "sum"})
-    df.set_index("starttime", inplace=True)
-    return df
-
 prod_df = load_production()
 cons_df = load_consumption()
 
@@ -122,7 +86,7 @@ df = prod_df if data_type == "Production" else cons_df
 group_col = "productiongroup" if data_type == "Production" else "consumptiongroup"
 
 if df.empty or group_col not in df.columns:
-    st.warning("No data available (empty dataframe or missing group column). Check DB and secrets.")
+    st.warning("No data available (empty dataframe or missing group column).")
     st.stop()
 
 groups = sorted(df[group_col].dropna().unique())
@@ -131,8 +95,6 @@ if not groups:
     st.stop()
 
 selected_group = st.selectbox("Select group:", groups)
-
-# Year filter
 selected_year = st.selectbox("Select year:", [2021, 2022, 2023, 2024])
 
 # ==============================================================================
@@ -143,7 +105,6 @@ def compute_area_means():
     if df_group.empty:
         return {}
 
-    # Ensure index is DatetimeIndex
     if not isinstance(df_group.index, pd.DatetimeIndex):
         df_group.index = pd.to_datetime(df_group.index)
 
@@ -154,9 +115,7 @@ def compute_area_means():
 
     df_year["pricearea"] = df_year["pricearea"].apply(normalize_to_NO)
     df_year = df_year[df_year["pricearea"].notna()]
-
-    means = df_year.groupby("pricearea")["quantitykwh"].mean().to_dict()
-    return means
+    return df_year.groupby("pricearea")["quantitykwh"].mean().to_dict()
 
 st.session_state.area_means = compute_area_means()
 area_means = st.session_state.area_means
@@ -166,11 +125,10 @@ if not area_means:
     st.stop()
 
 # ==============================================================================
-# Debug: show mapping between geojson areas and normalized codes
+# Sidebar debug
 # ==============================================================================
 st.sidebar.write("GeoJSON -> normalized area (sample):")
-sample_map = {i: v for i, v in list(geo_feature_area.items())}
-st.sidebar.json(sample_map)
+st.sidebar.json({i: v for i, v in list(geo_feature_area.items())})
 
 # ==============================================================================
 # Color scale using branca
@@ -226,7 +184,6 @@ if st.session_state.clicked_point:
 # Click handler
 # ==============================================================================
 map_data = st_folium(m, width=1000, height=700)
-
 if map_data and map_data.get("last_clicked"):
     lat = map_data["last_clicked"]["lat"]
     lon = map_data["last_clicked"]["lng"]
