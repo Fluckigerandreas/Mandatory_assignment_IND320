@@ -1,11 +1,10 @@
 # ======================================================
-# Page3.py — Streamlit with Plotly
+# Page3.py — Streamlit with Plotly (Optimized)
 # ======================================================
 import streamlit as st
 import pandas as pd
 import requests
 import plotly.express as px
-import plotly.graph_objects as go
 
 st.set_page_config(page_title="Weather Data Plot", page_icon="📈")
 st.title("📊 Weather Data Visualization")
@@ -20,8 +19,9 @@ cities = [
 ]
 
 # --- Function to fetch ERA5 weather data ---
-@st.cache_data
+@st.cache_data(show_spinner=False)
 def load_data_api(lat, lon, year=2021, timezone="Europe/Oslo"):
+    """Load full-year hourly ERA5 data for a given location."""
     url = "https://archive-api.open-meteo.com/v1/archive"
     params = {
         "latitude": lat,
@@ -38,29 +38,37 @@ def load_data_api(lat, lon, year=2021, timezone="Europe/Oslo"):
         "models": "era5",
         "timezone": timezone
     }
-    r = requests.get(url, params=params)
+    r = requests.get(url, params=params, timeout=60)
+    r.raise_for_status()
     data = r.json()["hourly"]
     df = pd.DataFrame(data)
     df["time"] = pd.to_datetime(df["time"])
-    df["month"] = df["time"].dt.to_period("M")
+    df["month"] = df["time"].dt.to_period("M")  # helper column
     return df
+
+# --- Load data once per city ---
+@st.cache_data(show_spinner=True)
+def load_city_data(city_name):
+    city = next(c for c in cities if c["city"] == city_name)
+    return load_data_api(city["lat"], city["lon"])
 
 # --- Page controls ---
 st.header("Controls")
 
 # City selection
 city_option = st.selectbox("Select city:", [c["city"] for c in cities])
-selected_city = next(c for c in cities if c["city"] == city_option)
+df = load_city_data(city_option)  # Cached per city
 
-# Load data for column and month options
-df_sample = load_data_api(selected_city["lat"], selected_city["lon"])
+if df.empty:
+    st.warning("No data available for this city.")
+    st.stop()
 
 # Variable selection
-columns = ["All"] + list(df_sample.columns[1:-1])  # skip 'time' and 'month'
+columns = ["All"] + list(df.columns[1:-1])  # skip 'time' and 'month'
 selected_column = st.selectbox("Select variable:", columns)
 
 # Month range slider
-unique_months = df_sample['month'].unique().astype(str).tolist()
+unique_months = df['month'].unique().astype(str).tolist()
 month_range = st.select_slider(
     "Select months:",
     options=unique_months,
@@ -68,9 +76,11 @@ month_range = st.select_slider(
 )
 start, end = pd.Period(month_range[0]), pd.Period(month_range[1])
 
-# --- Load filtered data ---
-df = load_data_api(selected_city["lat"], selected_city["lon"])
+# --- Filter data locally ---
 filtered_df = df[(df['month'] >= start) & (df['month'] <= end)]
+
+if selected_column != "All":
+    filtered_df = filtered_df[["time", selected_column]]
 
 # --- Plotting ---
 st.subheader("Weather Data Plot")
@@ -106,4 +116,3 @@ fig.update_layout(
     hovermode="x unified"
 )
 st.plotly_chart(fig, use_container_width=True)
-
