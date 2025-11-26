@@ -3,7 +3,8 @@ import pandas as pd
 import requests
 import plotly.express as px
 from requests.adapters import HTTPAdapter
-from requests.packages.urllib3.util.retry import Retry
+from urllib3.util.retry import Retry
+from requests.adapters import HTTPAdapter
 
 st.set_page_config(page_title="Weather Data Plot", page_icon="📈")
 st.title("📊 Weather Data Visualization")
