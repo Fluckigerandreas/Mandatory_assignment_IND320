@@ -1,8 +1,3 @@
-# =======================================================
-# SWC_sliding_window_daily_window_slider.py
-# Sliding Window Correlation – Meteorology vs Energy (Daily)
-# Window size + movable window slider (tz-naive fix)
-# =======================================================
 import streamlit as st
 import pandas as pd
 import numpy as np

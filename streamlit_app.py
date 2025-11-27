@@ -10,26 +10,47 @@ Navigate through the pages using the sidebar:
    - Pie chart: Total production per price area.  
    - Line chart: Hourly production trends by group and month.  
 
-2. **Beautiful STL and spectrogram**  
+2. **Beautiful STL and Spectrogram**  
    Analyze time series patterns in energy production:  
    - **STL Decomposition**: Trend, seasonal, and residual components.  
    - **Spectrogram**: Frequency content over time.  
 
-3. **Columnwise data import**  
-   Inspect the first month (January) of historical weather data for selected cities:  
-   - Hourly temperature, precipitation, and wind.  
-   - Interactive line charts per variable.  
-
-4. **Data Visualization Dashbord**  
+3. **Data Visualization Dashboard**  
    Flexible plotting of ERA5 weather data:  
    - Select variables and months.  
    - Plot multiple variables or a single variable over time.  
 
-5. **Extreme Event Analysis**  
+4. **Extreme Event Analysis**  
    Detect unusual weather events for selected cities and years:  
    - **Temperature**: Outliers via DCT + SPC.  
-   - **Precipitation**: Anomalies via Local Outlier Factor (LOF).  
+   - **Precipitation**: Anomalies via Local Outlier Factor (LOF). 
+
+
+5. **Interactive visualization of electricity production and consumption (Elhub NO1–NO5):  
+- **Select data type, group, and year.  
+- **Explore average quantities per price area on an interactive map.  
+- **Click regions to highlight and inspect area-specific data.
+
+6. **Interactive SARIMAX forecasting of electricity production or consumption:  
+- Select type, group, and price area.  
+- **Choose training data period for model fitting.  
+- **Configure SARIMAX parameters (AR, MA, seasonal terms).  
+- **Generate forecasts with confidence intervals. 
+            
+7. **Interactive exploration of energy data and snow drift impacts:  
+- Energy Map**: Visualize production or consumption per NO price area over selected days.  
+- **Click on map locations to inspect area-level values.  
+- **Snow Drift Explorer**: Calculate and visualize seasonal and monthly snow drift at chosen coordinates.  
+- **Generate wind rose plots for wind-driven snow distribution analysis.
+            
+8. **Analyze relationships between energy and weather on a daily basis:  
+- **Energy vs Weather**: Compare production or consumption with ERA5 meteorological variables.  
+- **Apply **lag** to see leading/lagging effects.  
+- **Use **movable sliding windows** to explore correlations over time.  
+- **Visualize energy, weather, and correlation series interactively.
 """)
+         
+
 
 # Added a nice picture (Chose a nice nightsky)
 st.image(
