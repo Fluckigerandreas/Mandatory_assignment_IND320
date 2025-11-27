@@ -214,7 +214,7 @@ fig_energy.update_layout(
     yaxis_title="Energy (kWh/day)",
     title=f"Daily energy series: {selected_group}",
 )
-st.plotly_chart(fig_energy, use_container_width=True)
+st.plotly_chart(fig_energy, width='stretch')
 
 # -------------------------
 # Plot weather series (daily)
@@ -245,7 +245,7 @@ fig_weather.update_layout(
     yaxis_title=variable_weather,
     title=f"Daily weather series: {variable_weather}",
 )
-st.plotly_chart(fig_weather, use_container_width=True)
+st.plotly_chart(fig_weather, width='stretch')
 
 # -------------------------
 # Plot sliding window correlation (daily)
@@ -291,7 +291,7 @@ fig_swc.update_layout(
         f"overall corr={corr_value:.3f}"
     ),
 )
-st.plotly_chart(fig_swc, use_container_width=True)
+st.plotly_chart(fig_swc, width='stretch')
 
 # -------------------------
 # Text summary
