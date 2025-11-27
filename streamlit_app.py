@@ -6,14 +6,14 @@ Welcome! This dashboard provides interactive analysis of energy production and w
 Navigate through the pages using the sidebar:
 
 1. **Analysis of Elhub data**  
-   Explore hourly electricity production by price area and production group.  
+   Explore hourly electricity production by price area and production group:  
    - Pie chart: Total production per price area.  
    - Line chart: Hourly production trends by group and month.  
 
 2. **Beautiful STL and Spectrogram**  
    Analyze time series patterns in energy production:  
-   - **STL Decomposition**: Trend, seasonal, and residual components.  
-   - **Spectrogram**: Frequency content over time.  
+   - STL Decomposition: Trend, seasonal, and residual components.  
+   - Spectrogram: Frequency content over time.  
 
 3. **Data Visualization Dashboard**  
    Flexible plotting of ERA5 weather data:  
@@ -22,37 +22,37 @@ Navigate through the pages using the sidebar:
 
 4. **Extreme Event Analysis**  
    Detect unusual weather events for selected cities and years:  
-   - **Temperature**: Outliers via DCT + SPC.  
-   - **Precipitation**: Anomalies via Local Outlier Factor (LOF). 
+   - Temperature: Outliers via DCT + SPC.  
+   - Precipitation: Anomalies via Local Outlier Factor (LOF).  
 
+5. **Interactive Electricity Production & Consumption Map (Elhub NO1–NO5)**  
+   Explore average quantities per price area:  
+   - Select data type, group, and year.  
+   - Inspect area-specific values by clicking on map regions.  
 
-5. **Interactive visualization of electricity production and consumption (Elhub NO1–NO5):  
-- **Select data type, group, and year.  
-- **Explore average quantities per price area on an interactive map.  
-- **Click regions to highlight and inspect area-specific data.
+6. **Interactive SARIMAX Forecasting**  
+   Forecast electricity production or consumption:  
+   - Select type, group, and price area.  
+   - Choose training data period for model fitting.  
+   - Configure SARIMAX parameters (AR, MA, seasonal terms).  
+   - Generate forecasts with confidence intervals.  
 
-6. **Interactive SARIMAX forecasting of electricity production or consumption:  
-- Select type, group, and price area.  
-- **Choose training data period for model fitting.  
-- **Configure SARIMAX parameters (AR, MA, seasonal terms).  
-- **Generate forecasts with confidence intervals. 
-            
-7. **Interactive exploration of energy data and snow drift impacts:  
-- Energy Map**: Visualize production or consumption per NO price area over selected days.  
-- **Click on map locations to inspect area-level values.  
-- **Snow Drift Explorer**: Calculate and visualize seasonal and monthly snow drift at chosen coordinates.  
-- **Generate wind rose plots for wind-driven snow distribution analysis.
-            
-8. **Analyze relationships between energy and weather on a daily basis:  
-- **Energy vs Weather**: Compare production or consumption with ERA5 meteorological variables.  
-- **Apply **lag** to see leading/lagging effects.  
-- **Use **movable sliding windows** to explore correlations over time.  
-- **Visualize energy, weather, and correlation series interactively.
+7. **Energy Data & Snow Drift Explorer**  
+   Study energy and snow drift impacts interactively:  
+   - Energy Map: Visualize production or consumption per NO price area over selected days.  
+   - Click map locations to inspect area-level values.  
+   - Snow Drift Explorer: Calculate and visualize seasonal and monthly snow drift at chosen coordinates.  
+   - Generate wind rose plots for wind-driven snow distribution analysis.  
+
+8. **Sliding Window Correlation: Energy vs Weather (Daily)**  
+   Analyze relationships between energy and weather:  
+   - Compare production or consumption with ERA5 meteorological variables.  
+   - Apply lag to see leading/lagging effects.  
+   - Use movable sliding windows to explore correlations over time.  
+   - Visualize energy, weather, and correlation series interactively.
 """)
-         
 
-
-# Added a nice picture (Chose a nice nightsky)
+# Added a nice picture (Chose a nice night sky)
 st.image(
     "https://images.unsplash.com/photo-1503264116251-35a269479413?auto=format&fit=crop&w=1200&q=80",
     use_container_width=True
