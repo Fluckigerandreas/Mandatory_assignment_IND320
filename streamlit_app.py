@@ -1,8 +1,15 @@
 import streamlit as st
 
 st.title("⚡ Energy & Weather Dashboard")
+
+st.image(
+    "https://www.nmbu.no/_next/image?q=75&url=https%3A%2F%2Fmain-bvxea6i-kdsvgmpf4iwws.eu-5.platformsh.site%2Fsites%2Fdefault%2Ffiles%2Fstyles%2Flandscape_16_9%2Fpublic%2Fumb-020852_0.jpg%3Fh%3Ddbfb23f9%26itok%3D_iGGbuy0&w=3840",
+    width='stretch'
+)
+
 st.markdown("""
 Welcome! This dashboard provides interactive analysis of energy production and weather data.  
+            
 Navigate through the pages using the sidebar:
 
 1. **Analysis of Elhub data**  
@@ -52,12 +59,5 @@ Navigate through the pages using the sidebar:
    - Visualize energy, weather, and correlation series interactively.
 """)
 
-# Added a nice picture (Chose a nice night sky)
-st.image(
-    "https://images.unsplash.com/photo-1503264116251-35a269479413?auto=format&fit=crop&w=1200&q=80",
-    use_container_width=True
-)
-
 st.markdown("---")
-st.info("Use the sidebar to navigate between different pages of the dashboard :)")
 
