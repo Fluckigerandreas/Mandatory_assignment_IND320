@@ -1,229 +1,302 @@
-# SWC_sliding_window.py
+# =======================================================
+# SWC_sliding_window_daily_window_slider.py
+# Sliding Window Correlation – Meteorology vs Energy (Daily)
+# Window size + movable window slider (tz-naive fix)
+# =======================================================
 import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
-
-import requests_cache
-from retry_requests import retry
-import openmeteo_requests
-
 from Data_loader import load_production, load_consumption
+import requests
 
 
-# ======================================================
-# STREAMLIT SETTINGS
-# ======================================================
 st.set_page_config(layout="wide")
-st.title("Sliding Window Correlation: Meteorology vs Energy")
+st.title("Sliding Window Correlation (Daily): Energy vs Weather (NMBU Ås)")
 
+# -------------------------
+# Fixed location and year (NMBU Ås)
+# -------------------------
+LAT, LON = 59.6638, 10.7620
+YEAR = 2023
 
-# ======================================================
-# ERA5 WEATHER DATA DOWNLOAD (Open-Meteo)
-# ======================================================
-@st.cache_data(show_spinner="Downloading ERA5 ERA5 weather data...")
-def download_era5_openmeteo(lat, lon, year, timezone="Europe/Oslo"):
-    """Download ERA5 hourly data using Open-Meteo with retries & caching."""
-
-    cache_session = requests_cache.CachedSession(".cache", expire_after=-1)
-    retry_session = retry(cache_session, retries=5, backoff_factor=0.3)
-    client = openmeteo_requests.Client(session=retry_session)
-
+# -------------------------
+# Download ERA5 weather (cached, hourly -> daily later)
+# -------------------------
+@st.cache_data(show_spinner="Downloading weather data...")
+def download_era5(lat, lon, year, timezone="Europe/Oslo"):
     url = "https://archive-api.open-meteo.com/v1/archive"
-
     params = {
         "latitude": lat,
         "longitude": lon,
         "start_date": f"{year}-01-01",
         "end_date": f"{year}-12-31",
+        "timezone": timezone,
+        "models": "era5",
         "hourly": [
             "temperature_2m",
             "precipitation",
             "wind_speed_10m",
-            "wind_gusts_10m",
             "wind_direction_10m",
+            "wind_gusts_10m",
         ],
-        "models": "era5",
-        "timezone": timezone,
     }
-
-    response = client.weather_api(url, params=params)[0]
-    hourly = response.Hourly()
-
-    # ---- Extract timestamps (seconds → datetime) ----
-    timestamps = pd.to_datetime(hourly.Time(), unit="s", utc=True)
-
-    # ---- Extract all variables ----
-    df = pd.DataFrame({
-        "temperature_2m": hourly.Variables(0).ValuesAsNumpy(),
-        "precipitation": hourly.Variables(1).ValuesAsNumpy(),
-        "wind_speed_10m": hourly.Variables(2).ValuesAsNumpy(),
-        "wind_gusts_10m": hourly.Variables(3).ValuesAsNumpy(),
-        "wind_direction_10m": hourly.Variables(4).ValuesAsNumpy(),
-    }, index=timestamps)
-
-    df = df.apply(pd.to_numeric, errors="coerce")
+    r = requests.get(url, params=params)
+    r.raise_for_status()
+    data = r.json()
+    df = pd.DataFrame(data["hourly"])
+    df["time"] = pd.to_datetime(df["time"], utc=True)
+    df = df.set_index("time")
+    numeric_cols = [
+        "temperature_2m",
+        "precipitation",
+        "wind_speed_10m",
+        "wind_direction_10m",
+        "wind_gusts_10m",
+    ]
+    df[numeric_cols] = df[numeric_cols].apply(pd.to_numeric, errors="coerce")
     df = df.dropna()
     df = df[~df.index.duplicated(keep="first")]
-
+    df = df.resample("H").mean()
     return df
 
-
-# ======================================================
-# FIXED LOCATION + YEAR
-# ======================================================
-LAT, LON = 59.91, 10.75
-YEAR = 2023
-
-
-# ======================================================
-# LOAD ENERGY DATA
-# ======================================================
+# -------------------------
+# Load energy data
+# -------------------------
 prod_df = load_production()
 cons_df = load_consumption()
 
-
-# ======================================================
-# SIDEBAR SETTINGS
-# ======================================================
+# -------------------------
+# Sidebar selectors
+# -------------------------
 st.sidebar.header("Settings")
-
 variable_weather = st.sidebar.selectbox(
     "Select meteorological variable",
-    ["temperature_2m", "precipitation", "wind_speed_10m",
-     "wind_direction_10m", "wind_gusts_10m"]
+    [
+        "temperature_2m",
+        "precipitation",
+        "wind_speed_10m",
+        "wind_direction_10m",
+        "wind_gusts_10m",
+    ],
+)
+variable_energy_type = st.sidebar.radio(
+    "Select energy type", ["Production", "Consumption"]
 )
 
-energy_type = st.sidebar.radio("Select energy type", ["Production", "Consumption"])
-
-if energy_type == "Production":
-    energy_df = prod_df.reset_index()
+if variable_energy_type == "Production":
+    energy_df = prod_df.copy()
     group_col = "productiongroup"
 else:
-    energy_df = cons_df.reset_index()
+    energy_df = cons_df.copy()
     group_col = "consumptiongroup"
 
 groups = sorted(energy_df[group_col].dropna().unique())
 selected_group = st.sidebar.selectbox("Select group", groups)
 
-# Controls
-lag = st.sidebar.slider("Lag (hours)", 0, 200, 0)
-window = st.sidebar.slider("Sliding window size", 5, 200, 48)
-max_lag = st.sidebar.slider("Max lag for cross-correlation", 0, 200, 50)
+lag_days = st.sidebar.slider("Lag (days, + means weather leads)", -30, 30, 0)
 
+# -------------------------
+# Prepare Elhub series (sum per group, daily)
+# -------------------------
+energy_series = energy_df[energy_df[group_col] == selected_group].copy()
+energy_series["quantitykwh"] = pd.to_numeric(
+    energy_series["quantitykwh"], errors="coerce"
+)
+energy_series = energy_series.dropna(subset=["quantitykwh"])
 
-# ======================================================
-# PREPARE ENERGY SERIES
-# ======================================================
+if "starttime" in energy_series.columns:
+    energy_series.index = pd.to_datetime(energy_series["starttime"])
+else:
+    energy_series.index = pd.to_datetime(energy_series.index)
+
 energy_series = (
-    energy_df[energy_df[group_col] == selected_group]
-    .assign(quantitykwh=lambda df: pd.to_numeric(df["quantitykwh"], errors="coerce"))
-    .dropna(subset=["quantitykwh"])
-    .groupby("starttime")["quantitykwh"]
+    energy_series.groupby(energy_series.index)["quantitykwh"].sum()
+    .resample("D")
     .sum()
 )
 
+# -------------------------
+# Download weather and make daily series
+# -------------------------
+weather_df = download_era5(LAT, LON, YEAR)
+weather_series = weather_df[variable_weather]
 
-# ======================================================
-# LOAD WEATHER DATA
-# ======================================================
-weather_df = download_era5_openmeteo(LAT, LON, YEAR)
+if variable_weather == "precipitation":
+    weather_series = weather_series.resample("D").sum()
+else:
+    weather_series = weather_series.resample("D").mean()
 
+# Apply lag in days
+if lag_days != 0:
+    weather_series = weather_series.shift(lag_days)
 
-# ======================================================
-# ALIGN WEATHER + ENERGY
-# ======================================================
-merged = pd.concat(
-    [weather_df[variable_weather], energy_series],
-    axis=1, join="inner"
+# -------------------------
+# Align data (daily) and DROP TIMEZONE
+# -------------------------
+df_merged = pd.concat(
+    [energy_series.rename("energy"), weather_series.rename("weather")], axis=1
 ).dropna()
 
-if merged.empty:
-    st.error("Merged dataset is empty — no overlapping timestamps found.")
+# Make the index tz-naive so it matches slider dates
+if df_merged.index.tz is not None:
+    df_merged.index = df_merged.index.tz_localize(None)  # key fix[web:99][web:109]
+
+if df_merged.empty:
+    st.warning("No overlapping daily data between energy and weather series.")
     st.stop()
 
-x = merged[variable_weather]
-y = merged["quantitykwh"]
+x = df_merged["weather"]
+y = df_merged["energy"]
 
+# -------------------------
+# Window sliders
+# -------------------------
+min_win = 5
+max_win = min(180, len(df_merged))
+default_win = min(60, max_win)
+window_days = st.sidebar.slider(
+    "Window length (days)", min_win, max_win, default_win
+)
 
-# ======================================================
-# SLIDING WINDOW CORRELATION
-# ======================================================
-def sliding_window_corr(x, y, lag, window):
-    x_shifted = x.shift(lag)
-    df = pd.concat([x_shifted, y], axis=1).dropna()
-    return df.iloc[:, 1].rolling(window, center=True).corr(df.iloc[:, 0])
+date_min = df_merged.index.min().date()
+date_max = df_merged.index.max().date()
 
+latest_start = (df_merged.index.max() - pd.Timedelta(days=window_days - 1)).date()
+if latest_start < date_min:
+    latest_start = date_min
 
-swc = sliding_window_corr(x, y, lag, window)
+start_date = st.sidebar.slider(
+    "Move window across time (start date)",
+    min_value=date_min,
+    max_value=latest_start,
+    value=latest_start,
+    format="YYYY-MM-DD",
+)
 
-if lag > 0:
-    corr_value = np.corrcoef(y[lag:], x[:-lag])[0, 1]
-else:
-    corr_value = np.corrcoef(y, x)[0, 1]
+win_start = pd.to_datetime(start_date)  # naive
+win_end = win_start + pd.Timedelta(days=window_days - 1)
 
+# -------------------------
+# Sliding window correlation
+# -------------------------
+swc = y.rolling(window_days, center=True).corr(x)
+swc_window = swc.loc[win_start:win_end]  # now works, all tz-naive[web:101][web:117]
 
-# ======================================================
-# FIGURE 1: WEATHER SERIES
-# ======================================================
-st.subheader(f"Weather variable: {variable_weather}")
+corr_value = x.corr(y)
 
-fig_weather = go.Figure()
-fig_weather.add_trace(go.Scatter(x=x.index, y=x, mode="lines", name=variable_weather))
-fig_weather.update_layout(height=300, yaxis_title=variable_weather)
-st.plotly_chart(fig_weather, width="stretch")
-
-
-# ======================================================
-# FIGURE 2: ENERGY SERIES
-# ======================================================
-st.subheader(f"Energy series: {selected_group}")
-
+# -------------------------
+# Plot energy series (daily)
+# -------------------------
 fig_energy = go.Figure()
-fig_energy.add_trace(go.Scatter(x=y.index, y=y, mode="lines", name="kWh"))
-fig_energy.update_layout(height=300, yaxis_title="kWh")
-st.plotly_chart(fig_energy, width="stretch")
+fig_energy.add_trace(
+    go.Scatter(
+        y=y,
+        x=y.index,
+        mode="lines",
+        name=f"{selected_group}",
+        line=dict(color="steelblue"),
+    )
+)
 
+fig_energy.add_vrect(
+    x0=win_start,
+    x1=win_end,
+    fillcolor="red",
+    opacity=0.15,
+    line_width=0,
+    layer="below",
+)
 
-# ======================================================
-# FIGURE 3: SLIDING WINDOW CORRELATION
-# ======================================================
-st.subheader("Sliding Window Correlation")
+fig_energy.update_layout(
+    height=300,
+    xaxis_title="Date",
+    yaxis_title="Energy (kWh/day)",
+    title=f"Daily energy series: {selected_group}",
+)
+st.plotly_chart(fig_energy, use_container_width=True)
 
+# -------------------------
+# Plot weather series (daily)
+# -------------------------
+fig_weather = go.Figure()
+fig_weather.add_trace(
+    go.Scatter(
+        y=x,
+        x=x.index,
+        mode="lines",
+        name=f"{variable_weather}",
+        line=dict(color="steelblue"),
+    )
+)
+
+fig_weather.add_vrect(
+    x0=win_start,
+    x1=win_end,
+    fillcolor="red",
+    opacity=0.15,
+    line_width=0,
+    layer="below",
+)
+
+fig_weather.update_layout(
+    height=300,
+    xaxis_title="Date",
+    yaxis_title=variable_weather,
+    title=f"Daily weather series: {variable_weather}",
+)
+st.plotly_chart(fig_weather, use_container_width=True)
+
+# -------------------------
+# Plot sliding window correlation (daily)
+# -------------------------
 fig_swc = go.Figure()
-fig_swc.add_trace(go.Scatter(x=swc.index, y=swc, mode="lines", name="SWC"))
+fig_swc.add_trace(
+    go.Scatter(
+        y=swc,
+        x=swc.index,
+        mode="lines",
+        name="Sliding Window Corr",
+        line=dict(color="steelblue"),
+    )
+)
+
+fig_swc.add_vrect(
+    x0=win_start,
+    x1=win_end,
+    fillcolor="red",
+    opacity=0.10,
+    line_width=0,
+    layer="below",
+)
+
+if not swc_window.dropna().empty:
+    fig_swc.add_trace(
+        go.Scatter(
+            y=swc_window,
+            x=swc_window.index,
+            mode="lines",
+            name="Window SWC",
+            line=dict(color="red", width=3),
+        )
+    )
+
 fig_swc.update_layout(
-    height=350,
-    xaxis_title="Time",
+    height=300,
+    xaxis_title="Date",
     yaxis_title="Correlation",
-    title=f"SWC (lag={lag}, window={window}) — Corr={corr_value:.3f}"
+    title=(
+        f"Sliding Window Correlation (Daily)\n"
+        f"lag={lag_days} days, window={window_days} days, "
+        f"overall corr={corr_value:.3f}"
+    ),
 )
-st.plotly_chart(fig_swc, width="stretch")
+st.plotly_chart(fig_swc, use_container_width=True)
 
-
-# ======================================================
-# FIGURE 4: CORRELATION VS LAG
-# ======================================================
-st.header("Correlation vs Lag")
-
-lags = range(-max_lag, max_lag + 1)
-corrs = []
-
-for L in lags:
-    if L > 0:
-        corr = np.corrcoef(y[L:], x[:-L])[0, 1]
-    elif L < 0:
-        corr = np.corrcoef(y[:L], x[-L:])[0, 1]
-    else:
-        corr = np.corrcoef(y, x)[0, 1]
-    corrs.append(corr)
-
-fig_lag = go.Figure()
-fig_lag.add_trace(go.Scatter(x=list(lags), y=corrs, mode="lines+markers"))
-fig_lag.update_layout(
-    height=350,
-    xaxis_title="Lag (hours)",
-    yaxis_title="Correlation",
-    title="Correlation vs Lag"
+# -------------------------
+# Text summary
+# -------------------------
+st.write(
+    f"Overall correlation between **{selected_group}** and "
+    f"**{variable_weather}** (daily values): **{corr_value:.3f}**"
 )
-st.plotly_chart(fig_lag, width="stretch")
